@@ -6,3 +6,8 @@ chmod +x kubebuilder && sudo mv kubebuilder /usr/local/bin/
 mkdir operator
 cd operator
 kubebuilder init --domain elp-max.com --repo github.com/jairjosafath/operator 
+
+
+kubebuilder create api --group testee --version v1 --kind Testee
+
+make manifest
