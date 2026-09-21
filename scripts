@@ -11,3 +11,8 @@ kubebuilder init --domain elp-max.com --repo github.com/jairjosafath/operator
 kubebuilder create api --group testee --version v1 --kind Testee
 
 make manifest
+
+kind create cluster
+
+make install
+
