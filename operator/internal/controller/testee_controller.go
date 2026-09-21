@@ -50,6 +50,10 @@ func (r *TesteeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	_ = logf.FromContext(ctx)
 
 	// TODO(user): your logic here
+	testee := &testeev1.Testee{}
+	r.Get(ctx, req.NamespacedName, testee)
+
+	logf.Log.Info("I got a request for testee", "Namespace", req.Namespace, "Name", testee.Name)
 
 	return ctrl.Result{}, nil
 }

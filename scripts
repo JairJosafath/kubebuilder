@@ -16,3 +16,8 @@ kind create cluster
 
 make install
 
+go run cmd/main.go
+
+kubectl apply -f test.yaml
+
+kubectl delete -f test.yaml

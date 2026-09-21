@@ -1,0 +1,6 @@
+apiVersion: testee.elp-max.com/v1 
+kind: Testee
+metadata:
+  name: prime-resource-1
+spec: 
+  foo: "bar-1"
