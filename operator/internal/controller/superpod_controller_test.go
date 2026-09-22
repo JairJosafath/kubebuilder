@@ -27,10 +27,10 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	testeev1 "github.com/jairjosafath/operator/api/v1"
+	superv1 "github.com/jairjosafath/operator/api/v1"
 )
 
-var _ = Describe("Testee Controller", func() {
+var _ = Describe("Superpod Controller", func() {
 	Context("When reconciling a resource", func() {
 		const (
 			resourceName      = "test-resource"
@@ -43,13 +43,13 @@ var _ = Describe("Testee Controller", func() {
 			Name:      resourceName,
 			Namespace: resourceNamespace,
 		}
-		testee := &testeev1.Testee{}
+		superpod := &superv1.Superpod{}
 
 		BeforeEach(func() {
-			By("creating the custom resource for the Kind Testee")
-			err := k8sClient.Get(ctx, typeNamespacedName, testee)
+			By("creating the custom resource for the Kind Superpod")
+			err := k8sClient.Get(ctx, typeNamespacedName, superpod)
 			if err != nil && errors.IsNotFound(err) {
-				resource := &testeev1.Testee{
+				resource := &superv1.Superpod{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      resourceName,
 						Namespace: resourceNamespace,
@@ -62,16 +62,16 @@ var _ = Describe("Testee Controller", func() {
 
 		AfterEach(func() {
 			// TODO(user): Cleanup logic after each test, like removing the resource instance.
-			resource := &testeev1.Testee{}
+			resource := &superv1.Superpod{}
 			err := k8sClient.Get(ctx, typeNamespacedName, resource)
 			Expect(err).NotTo(HaveOccurred())
 
-			By("Cleanup the specific resource instance Testee")
+			By("Cleanup the specific resource instance Superpod")
 			Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
 		})
 		It("should successfully reconcile the resource", func() {
 			By("Reconciling the created resource")
-			controllerReconciler := &TesteeReconciler{
+			controllerReconciler := &SuperpodReconciler{
 				Client: k8sClient,
 				Scheme: k8sClient.Scheme(),
 			}

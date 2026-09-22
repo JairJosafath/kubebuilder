@@ -1,4 +1,4 @@
 ## Append samples of your project ##
 resources:
-- testee_v1_testee.yaml
+- super_v1_superpod.yaml
 # +kubebuilder:scaffold:manifestskustomizesamples

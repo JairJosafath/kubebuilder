@@ -4,20 +4,20 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.22.0
-  name: testees.testee.elp-max.com
+  name: superpods.super.elp-max.com
 spec:
-  group: testee.elp-max.com
+  group: super.elp-max.com
   names:
-    kind: Testee
-    listKind: TesteeList
-    plural: testees
-    singular: testee
+    kind: Superpod
+    listKind: SuperpodList
+    plural: superpods
+    singular: superpod
   scope: Namespaced
   versions:
   - name: v1
     schema:
       openAPIV3Schema:
-        description: Testee is the Schema for the testees API
+        description: Superpod is the Schema for the superpods API
         properties:
           apiVersion:
             description: |-
@@ -37,19 +37,19 @@ spec:
           metadata:
             type: object
           spec:
-            description: spec defines the desired state of Testee
+            description: spec defines the desired state of Superpod
             properties:
               foo:
-                description: foo is an example field of Testee. Edit testee_types.go
+                description: foo is an example field of Superpod. Edit superpod_types.go
                   to remove/update
                 type: string
             type: object
           status:
-            description: status defines the observed state of Testee
+            description: status defines the observed state of Superpod
             properties:
               conditions:
                 description: |-
-                  conditions represent the current state of the Testee resource.
+                  conditions represent the current state of the Superpod resource.
                   Each condition has a unique type and reflects the status of a specific aspect of the resource.
 
                   Standard condition types include:
@@ -116,8 +116,6 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
-              phase:
-                type: string
             type: object
         required:
         - spec

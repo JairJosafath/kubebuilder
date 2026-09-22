@@ -5,9 +5,9 @@ metadata:
   name: manager-role
 rules:
 - apiGroups:
-  - testee.elp-max.com
+  - super.elp-max.com
   resources:
-  - testees
+  - superpods
   verbs:
   - create
   - delete
@@ -17,15 +17,15 @@ rules:
   - update
   - watch
 - apiGroups:
-  - testee.elp-max.com
+  - super.elp-max.com
   resources:
-  - testees/finalizers
+  - superpods/finalizers
   verbs:
   - update
 - apiGroups:
-  - testee.elp-max.com
+  - super.elp-max.com
   resources:
-  - testees/status
+  - superpods/status
   verbs:
   - get
   - patch

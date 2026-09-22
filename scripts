@@ -8,15 +8,16 @@ cd operator
 kubebuilder init --domain elp-max.com --repo github.com/jairjosafath/operator 
 
 
-kubebuilder create api --group testee --version v1 --kind Testee
+kubebuilder create api --group super --version v1 --kind Superpod
 
+cd operator 
 make manifest
 
 kind create cluster
 
 make install
 
-go run cmd/main.go
+go run main.go
 
 kubectl apply -f test.yaml
 
