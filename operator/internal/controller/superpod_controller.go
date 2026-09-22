@@ -31,6 +31,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	"github.com/go-logr/logr"
 	superv1 "github.com/jairjosafath/operator/api/v1"
 )
 
@@ -68,21 +69,51 @@ func (r *SuperpodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return reconcile.Result{}, err // since result is empty, this will trigger exp backoff loop
 	}
 
-	// the finalizer is actually the one who should create the resource
+	if superPod.Spec.PodName != "" {
+		log.Info("superpod already created")
+		
+	}
+
+	if !superPod.DeletionTimestamp.IsZero() {
+		log.Info("superpod deleted, finalizing deletion")
+		if err := r.Delete(ctx, superPod); err != nil {
+			log.Info("failed to delete superpod", "name", superPod.Name, "namespace", req.Namespace)
+			return reconcile.Result{}, err
+		}
+		return reconcile.Result{}, nil
+	}
+
+	cfg, err := rest.InClusterConfig()
+	if err != nil {
+		log.Info("failed to setup in-cluster configuration")
+		return reconcile.Result{}, nil
+	}
+
+	clientset, err := kubernetes.NewForConfig(cfg)
+	if err != nil {
+		log.Info("failed to setup in-cluster client")
+		return reconcile.Result{}, nil
+	}
+
+	podCLient := &podCLient{
+		Clientset: clientset,
+		log:       log,
+	}
 
 	log.Info("===== create new super pod ====")
-	podName, err := createSuperPod(ctx, superPod.Spec.SuperAbility, req.Namespace, superPod.Name)
+	podName, err := podCLient.createSuperPod(ctx, superPod.Spec.SuperAbility, req.Namespace, superPod.Name)
 	if err != nil {
 		log.Info("pod could not be created:", "name", superPod.Name, "namespace", req.Namespace)
 		return reconcile.Result{}, err
 	}
 
-	log.Info("==== update status")
+	log.Info("==== update superpod.spec.podname ====")
 	superPod.Spec.PodName = podName
 
-
-	log.Info("=== waiting for pod to be in the running state")
-	
+	if err := r.Update(ctx, superPod); err != nil {
+		log.Info("failed to update superpod", "name", superPod.Name, "namespace", req.Namespace)
+		return reconcile.Result{}, err
+	}
 
 	return ctrl.Result{}, nil
 }
@@ -95,29 +126,25 @@ func (r *SuperpodReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-func createSuperPod(ctx context.Context, superAbility, namespace, superPodName string) (string, error) {
-	cfg, err := rest.InClusterConfig()
-	if err != nil {
-		return "", fmt.Errorf("failed to setup in-cluster configuration: %w", err)
-	}
+type podCLient struct {
+	*kubernetes.Clientset
+	log logr.Logger
+}
 
-	clientset, err := kubernetes.NewForConfig(cfg)
-	if err != nil {
-		return "", fmt.Errorf("failed to setup in-cluster client: %w", err)
-	}
+func (p *podCLient) createSuperPod(ctx context.Context, superAbility, namespace, superPodName string) (string, error) {
 
 	pod := &corev1.Pod{}
 	pod.Name = namespace + "-" + superAbility
 	pod.Labels = map[string]string{"parent": superPodName, "ability": superAbility}
 
-	fmt.Printf("creating pod...")
+	p.log.Info("creating pod...")
 
-	ok, err := clientset.CoreV1().Pods(namespace).Create(ctx, pod, v1.CreateOptions{})
+	ok, err := p.CoreV1().Pods(namespace).Create(ctx, pod, v1.CreateOptions{})
 	if err != nil {
 		return "", fmt.Errorf("failed to create pod: %w", err)
 	}
 
-	fmt.Printf("Created pod %q.\n", ok.GetObjectMeta().GetName())
+	p.log.Info("Created pod %q.\n", ok.GetObjectMeta().GetName())
 
 	return ok.Name, err
 }
