@@ -4,3 +4,5 @@ metadata:
   name: prime-resource-1
 spec: 
   foo: "bar-1"
+status:
+  phase: "state value retrieved from resource"

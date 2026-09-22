@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 
+	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -47,13 +48,34 @@ type TesteeReconciler struct {
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.25.0/pkg/reconcile
 func (r *TesteeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	_ = logf.FromContext(ctx)
+	l := logf.FromContext(ctx)
 
+	l.Info("starting reconciliation", "Namespace", req.Namespace)
 	// TODO(user): your logic here
 	testee := &testeev1.Testee{}
-	r.Get(ctx, req.NamespacedName, testee)
 
-	logf.Log.Info("I got a request for testee", "Namespace", req.Namespace, "Name", testee.Name)
+	if err := r.Get(ctx, req.NamespacedName, testee); err != nil {
+		if errors.IsNotFound(err) {
+			l.Info("resource deleted, skipping reconsiliation")
+			return ctrl.Result{}, nil
+		}
+
+		return ctrl.Result{}, err
+	}
+
+	if testee.Status.Phase == "" {
+		l.Info("status.phase is not empty which means this is not a new object:", "Name", testee.Name)
+		// checking if the state has changed
+		if testee.Status.Phase != "state value retrieved from resource" {
+			l.Info("the state of the resource has changed, updating the object accordingly")
+			testee.Status.Phase = "new value from the resource"
+
+			if err := r.Update(ctx, testee); err != nil {
+				return ctrl.Result{}, nil
+			}
+		}
+		return ctrl.Result{}, nil
+	}
 
 	return ctrl.Result{}, nil
 }

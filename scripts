@@ -21,3 +21,8 @@ go run cmd/main.go
 kubectl apply -f test.yaml
 
 kubectl delete -f test.yaml
+
+
+# finally
+
+kind delete clusters kind
