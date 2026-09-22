@@ -32,8 +32,8 @@ type SuperpodSpec struct {
 	// More info: https://book.kubebuilder.io/reference/markers/crd-validation.html
 
 	// foo is an example field of Superpod. Edit superpod_types.go to remove/update
-	// +optional
-	Foo *string `json:"foo,omitempty"`
+	PodName      string `json:"podName"`
+	SuperAbility string `json:"superAbility,omitempty"`
 }
 
 // SuperpodStatus defines the observed state of Superpod.
