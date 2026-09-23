@@ -37,7 +37,7 @@ type SuperpodSpec struct {
 	Host string `json:"host"`
 
 	// ingressClassName selects the Ingress controller that serves the webpage.
-	// When omitted, the cluster must provide a default IngressClass.
+	// When omitted, the cluster must handle classless Ingresses or provide a default IngressClass.
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=253
 	// +optional
@@ -56,7 +56,8 @@ type SuperpodStatus struct {
 	URL string `json:"url,omitempty"`
 
 	// conditions describe the observed state. The Ready condition indicates
-	// whether the managed resources are ready, with a reason and message.
+	// whether nginx is ready and the Ingress has an address. It does not verify
+	// browser DNS, connectivity, or ConfigMap projection into the container.
 	// +listType=map
 	// +listMapKey=type
 	// +optional

@@ -1,0 +1,11 @@
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane
+    extraPortMappings:
+      # Docker runs inside the dev container. Forward dev-container port 80
+      # to local port 80 in VS Code to open http://superpod.localhost.
+      - containerPort: 8000
+        hostPort: 80
+        listenAddress: "127.0.0.1"
+        protocol: TCP

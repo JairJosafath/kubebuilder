@@ -41,8 +41,14 @@ set an explicit class to change it. Most Pod fields are immutable, so existing
 Pods only have managed labels and container images reconciled. HTML lives in the
 ConfigMap and can change without replacing the Pod.
 
-The controller currently reports `status.podName`. URL and readiness reporting
-and checking the cluster's external routing are the next task. ConfigMap API
+The controller reports `status.podName`, `status.url` (HTTP), and a `Ready`
+condition with a reason and the observed spec generation. `Ready=True` requires
+a running, ready nginx Pod and an IP or hostname published in Ingress status.
+Controllers that do not publish addresses will leave it at `IngressPending`.
+Readiness does not verify browser DNS, external connectivity, or whether a
+ConfigMap update has reached the Pod yet. See [the access guide](../../docs/webpage-access.md).
+
+ConfigMap API
 access restrictions are skipped; the generated controller RBAC only supplies
 the operator's own required permissions.
 

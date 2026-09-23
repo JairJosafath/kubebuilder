@@ -18,10 +18,12 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -56,7 +58,6 @@ func (r *SuperpodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, nil
 	}
 
-	ownerUID := sp.UID
 	pod := resources.NewPod(sp)
 	children := []client.Object{
 		resources.NewServiceAccount(sp),
@@ -68,30 +69,29 @@ func (r *SuperpodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	for _, child := range children {
 		terminating, err := resources.Ensure(ctx, r.Client, r.Scheme, sp, child)
 		if err != nil {
-			return ctrl.Result{}, err
+			statusErr := r.updateStatus(ctx, sp, sp.Status.PodName, metav1.Condition{
+				Status: metav1.ConditionFalse, Reason: "ReconcileFailed", Message: err.Error(),
+			})
+			return ctrl.Result{}, errors.Join(err, statusErr)
 		}
 		if terminating {
 			// A name cannot be reused until deletion finishes. Watches normally
 			// wake us up; this short retry also covers a missed deletion event.
-			return ctrl.Result{RequeueAfter: time.Second}, nil
+			return ctrl.Result{RequeueAfter: time.Second}, r.updateStatus(ctx, sp, sp.Status.PodName, metav1.Condition{
+				Status: metav1.ConditionFalse, Reason: "ResourceTerminating",
+				Message: "Waiting for a child resource to finish deletion before recreating it",
+			})
 		}
 	}
 
-	// Re-fetch before updating status so concurrent edits produce a conflict
-	// and retry rather than being overwritten. Avoid a write when unchanged.
-	if err := r.Get(ctx, req.NamespacedName, sp); err != nil {
-		return ctrl.Result{}, client.IgnoreNotFound(err)
+	condition, err := r.readiness(ctx, sp)
+	if err != nil {
+		statusErr := r.updateStatus(ctx, sp, pod.Name, metav1.Condition{
+			Status: metav1.ConditionUnknown, Reason: "ObservationFailed", Message: err.Error(),
+		})
+		return ctrl.Result{}, errors.Join(err, statusErr)
 	}
-	if sp.UID != ownerUID {
-		return ctrl.Result{RequeueAfter: time.Second}, nil
-	}
-	if sp.DeletionTimestamp.IsZero() && sp.Status.PodName != pod.Name {
-		sp.Status.PodName = pod.Name
-		if err := r.Status().Update(ctx, sp); err != nil {
-			return ctrl.Result{}, err
-		}
-	}
-	return ctrl.Result{}, nil
+	return ctrl.Result{}, r.updateStatus(ctx, sp, pod.Name, condition)
 }
 
 // SetupWithManager watches the Superpod and every kind of child it owns.

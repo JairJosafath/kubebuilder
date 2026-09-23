@@ -26,6 +26,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -97,6 +98,12 @@ var _ = Describe("Superpod reconciliation", func() {
 		before := fetchChildren()
 		Expect(k8sClient.Get(ctx, request.NamespacedName, sp)).To(Succeed())
 		Expect(sp.Status.PodName).To(Equal(resources.NewPod(sp).Name))
+		Expect(sp.Status.URL).To(Equal("http://" + sp.Spec.Host))
+		ready := meta.FindStatusCondition(sp.Status.Conditions, "Ready")
+		Expect(ready).NotTo(BeNil())
+		Expect(ready.Status).To(Equal(metav1.ConditionFalse))
+		Expect(ready.Reason).To(Equal("PodNotReady"))
+		Expect(ready.ObservedGeneration).To(Equal(sp.Generation))
 		parentVersion := sp.ResourceVersion
 		for _, child := range before {
 			owner := metav1.GetControllerOf(child)
@@ -176,6 +183,8 @@ var _ = Describe("Superpod reconciliation", func() {
 		Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cm), cm)).To(Succeed())
 		Expect(cm.ResourceVersion).To(Equal(version))
 		Expect(cm.Data["index.html"]).To(Equal("unrelated"))
+		Expect(k8sClient.Get(ctx, request.NamespacedName, sp)).To(Succeed())
+		Expect(meta.FindStatusCondition(sp.Status.Conditions, "Ready").Reason).To(Equal("ReconcileFailed"))
 	}, Entry("unowned resource", false), Entry("another owner", true))
 
 	It("waits for a terminating child before recreating it", func() {
@@ -189,6 +198,8 @@ var _ = Describe("Superpod reconciliation", func() {
 		result, err := reconciler.Reconcile(ctx, request)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(result.RequeueAfter).To(BeNumerically(">", 0))
+		Expect(k8sClient.Get(ctx, request.NamespacedName, sp)).To(Succeed())
+		Expect(meta.FindStatusCondition(sp.Status.Conditions, "Ready").Reason).To(Equal("ResourceTerminating"))
 		Expect(k8sClient.Get(ctx, key, cm)).To(Succeed())
 		Expect(cm.DeletionTimestamp.IsZero()).To(BeFalse())
 		cm.Finalizers = nil
@@ -217,7 +228,7 @@ var _ = Describe("Superpod reconciliation", func() {
 		reconcileOnce()
 	})
 
-	It("uses watches to recreate a deleted Pod without manual reconciliation", func() {
+	It("uses watches to recreate a Pod and report readiness without manual reconciliation", func() {
 		mgr, err := ctrl.NewManager(cfg, ctrl.Options{
 			Scheme:                 k8sClient.Scheme(),
 			Metrics:                metricsserver.Options{BindAddress: "0"},
@@ -247,5 +258,86 @@ var _ = Describe("Superpod reconciliation", func() {
 			}
 			return pod.UID != oldUID && metav1.IsControlledBy(pod, sp)
 		}).WithTimeout(10 * time.Second).Should(BeTrue())
+
+		// There is no kubelet or Ingress controller in envtest. Simulate their
+		// status updates and check that our watches trigger status reporting.
+		pod.Status.Phase = corev1.PodRunning
+		pod.Status.Conditions = []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}}
+		Expect(k8sClient.Status().Update(ctx, pod)).To(Succeed())
+		Eventually(func() string {
+			if err := k8sClient.Get(ctx, request.NamespacedName, sp); err != nil {
+				return ""
+			}
+			if condition := meta.FindStatusCondition(sp.Status.Conditions, "Ready"); condition != nil {
+				return condition.Reason
+			}
+			return ""
+		}).WithTimeout(10 * time.Second).Should(Equal("IngressPending"))
+		ingress := &networkingv1.Ingress{}
+		Expect(k8sClient.Get(ctx, key, ingress)).To(Succeed())
+		ingress.Status.LoadBalancer.Ingress = []networkingv1.IngressLoadBalancerIngress{{IP: "192.0.2.10"}}
+		Expect(k8sClient.Status().Update(ctx, ingress)).To(Succeed())
+		Eventually(func() bool {
+			if err := k8sClient.Get(ctx, request.NamespacedName, sp); err != nil {
+				return false
+			}
+			return meta.IsStatusConditionTrue(sp.Status.Conditions, "Ready")
+		}).WithTimeout(10 * time.Second).Should(BeTrue())
+	})
+
+	It("updates the URL and generation, and clears readiness when the Pod becomes unready", func() {
+		reconcileOnce()
+		pod := &corev1.Pod{}
+		key := client.ObjectKeyFromObject(resources.NewPod(sp))
+		Expect(k8sClient.Get(ctx, key, pod)).To(Succeed())
+		pod.Status.Phase = corev1.PodRunning
+		pod.Status.Conditions = []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}}
+		Expect(k8sClient.Status().Update(ctx, pod)).To(Succeed())
+		ingress := &networkingv1.Ingress{}
+		Expect(k8sClient.Get(ctx, key, ingress)).To(Succeed())
+		ingress.Status.LoadBalancer.Ingress = []networkingv1.IngressLoadBalancerIngress{{Hostname: "ingress.example.test"}}
+		Expect(k8sClient.Status().Update(ctx, ingress)).To(Succeed())
+		reconcileOnce()
+		Expect(k8sClient.Get(ctx, request.NamespacedName, sp)).To(Succeed())
+		Expect(meta.IsStatusConditionTrue(sp.Status.Conditions, "Ready")).To(BeTrue())
+		transition := meta.FindStatusCondition(sp.Status.Conditions, "Ready").LastTransitionTime
+		version := sp.ResourceVersion
+		reconcileOnce()
+		Expect(k8sClient.Get(ctx, request.NamespacedName, sp)).To(Succeed())
+		Expect(sp.ResourceVersion).To(Equal(version))
+
+		sp.Spec.Host = "updated.example.test"
+		Expect(k8sClient.Update(ctx, sp)).To(Succeed())
+		reconcileOnce()
+		Expect(k8sClient.Get(ctx, request.NamespacedName, sp)).To(Succeed())
+		Expect(sp.Status.URL).To(Equal("http://updated.example.test"))
+		condition := meta.FindStatusCondition(sp.Status.Conditions, "Ready")
+		Expect(condition.ObservedGeneration).To(Equal(sp.Generation))
+		Expect(condition.LastTransitionTime).To(Equal(transition))
+		Expect(k8sClient.Get(ctx, key, ingress)).To(Succeed())
+		Expect(ingress.Spec.Rules[0].Host).To(Equal(sp.Spec.Host))
+
+		pod.Status.Conditions[0].Status = corev1.ConditionFalse
+		Expect(k8sClient.Status().Update(ctx, pod)).To(Succeed())
+		reconcileOnce()
+		Expect(k8sClient.Get(ctx, request.NamespacedName, sp)).To(Succeed())
+		Expect(meta.IsStatusConditionFalse(sp.Status.Conditions, "Ready")).To(BeTrue())
+	})
+
+	It("does not publish a status computed for an older spec", func() {
+		reconcileOnce()
+		Expect(k8sClient.Get(ctx, request.NamespacedName, sp)).To(Succeed())
+		stale := sp.DeepCopy()
+		sp.Spec.Host = "newer.example.test"
+		Expect(k8sClient.Update(ctx, sp)).To(Succeed())
+		err := reconciler.updateStatus(ctx, stale, resources.NewPod(stale).Name, metav1.Condition{
+			Status: metav1.ConditionTrue, Reason: "ResourcesReady", Message: "Stale report",
+		})
+		Expect(apierrors.IsConflict(err)).To(BeTrue())
+		Expect(k8sClient.Get(ctx, request.NamespacedName, sp)).To(Succeed())
+		Expect(sp.Status).To(Equal(stale.Status))
+		reconcileOnce()
+		Expect(k8sClient.Get(ctx, request.NamespacedName, sp)).To(Succeed())
+		Expect(sp.Status.URL).To(Equal("http://newer.example.test"))
 	})
 })

@@ -9,5 +9,5 @@ spec:
   superAbility: "Flying"
   # Configure DNS (or your hosts file) to point this host at your Ingress controller.
   host: superpod.example.test
-  # Uncomment and set this if your cluster has no default IngressClass.
+  # Set this when your Ingress controller requires an explicit IngressClass.
   # ingressClassName: your-ingress-class

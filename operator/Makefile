@@ -106,6 +106,14 @@ lint-fix: golangci-lint ## Run golangci-lint linter and perform fixes
 lint-config: golangci-lint ## Verify golangci-lint linter configuration
 	"$(GOLANGCI_LINT)" config verify
 
+.PHONY: test-superpod
+test-superpod: ## Test the Superpod lifecycle and Ingress in a dedicated Kind cluster; leave a browser demo running.
+	bash hack/test-superpod.sh
+
+.PHONY: clean-test-superpod
+clean-test-superpod: ## Remove only the dedicated Superpod test/demo cluster.
+	KUBECONFIG="$(LOCALBIN)/superpod-e2e/config.kubeconfig" $(KIND) delete cluster --name superpod-e2e
+
 ##@ Build
 
 .PHONY: build

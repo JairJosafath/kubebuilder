@@ -59,7 +59,7 @@ spec:
               ingressClassName:
                 description: |-
                   ingressClassName selects the Ingress controller that serves the webpage.
-                  When omitted, the cluster must provide a default IngressClass.
+                  When omitted, the cluster must handle classless Ingresses or provide a default IngressClass.
                 maxLength: 253
                 minLength: 1
                 type: string
@@ -78,7 +78,8 @@ spec:
               conditions:
                 description: |-
                   conditions describe the observed state. The Ready condition indicates
-                  whether the managed resources are ready, with a reason and message.
+                  whether nginx is ready and the Ingress has an address. It does not verify
+                  browser DNS, connectivity, or ConfigMap projection into the container.
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.
