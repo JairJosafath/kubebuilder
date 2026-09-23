@@ -1,8 +1,6 @@
-apiVersion: testee.elp-max.com/v1 
-kind: Testee
+apiVersion:  super.elp-max.com/v1 
+kind: Superpod
 metadata:
   name: prime-resource-1
 spec: 
-  foo: "bar-1"
-status:
-  phase: "state value retrieved from resource"
+  superAbility: "hyper-metrics"
