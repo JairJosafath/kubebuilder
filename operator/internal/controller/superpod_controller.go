@@ -18,146 +18,91 @@ package controller
 
 import (
 	"context"
-	"fmt"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
-	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/kubernetes"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	logf "sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	"github.com/go-logr/logr"
 	superv1 "github.com/jairjosafath/operator/api/v1"
+	"github.com/jairjosafath/operator/internal/resources"
 )
 
-// SuperpodReconciler reconciles a Superpod object
+// SuperpodReconciler reconciles a Superpod object.
 type SuperpodReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
 }
 
-// +kubebuilder:rbac:groups=super.elp-max.com,resources=superpods,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=super.elp-max.com,resources=superpods,verbs=get;list;watch
 // +kubebuilder:rbac:groups=super.elp-max.com,resources=superpods/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=super.elp-max.com,resources=superpods/finalizers,verbs=update
+// +kubebuilder:rbac:groups="",resources=pods;configmaps;serviceaccounts;services,verbs=get;list;watch;create;update;patch
+// +kubebuilder:rbac:groups=networking.k8s.io,resources=ingresses,verbs=get;list;watch;create;update;patch
 
-// Reconcile is part of the main kubernetes reconciliation loop which aims to
-// move the current state of the cluster closer to the desired state.
-// TODO(user): Modify the Reconcile function to compare the state specified by
-// the Superpod object against the actual cluster state, and then
-// perform operations to make the cluster state reflect the state specified by
-// the user.
-//
-// For more details, check Reconcile and its Result here:
-// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.25.0/pkg/reconcile
+// Reconcile can run many times for the same Superpod. Each pass compares the
+// desired resources with the cluster, rather than treating status as a flag
+// meaning that creation is permanently finished.
 func (r *SuperpodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	log := logf.FromContext(ctx)
+	sp := &superv1.Superpod{}
+	if err := r.Get(ctx, req.NamespacedName, sp); err != nil {
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+	if !sp.DeletionTimestamp.IsZero() {
+		// Kubernetes garbage collection deletes children through owner references.
+		// Do not recreate resources while their parent is being deleted.
+		return ctrl.Result{}, nil
+	}
 
-	log.Info("############## Start Reconcile ############## ")
-
-	superPod := &superv1.Superpod{}
-	if err := r.Get(ctx, req.NamespacedName, superPod); err != nil {
-		if errors.IsNotFound(err) {
-			log.Info("superpod could not be found:", "name", superPod.Name, "namespace", req.Namespace)
-			return reconcile.Result{}, nil
+	ownerUID := sp.UID
+	pod := resources.NewPod(sp)
+	children := []client.Object{
+		resources.NewServiceAccount(sp),
+		resources.NewConfigMap(sp),
+		pod,
+		resources.NewService(sp),
+		resources.NewIngress(sp),
+	}
+	for _, child := range children {
+		terminating, err := resources.Ensure(ctx, r.Client, r.Scheme, sp, child)
+		if err != nil {
+			return ctrl.Result{}, err
 		}
-
-		return reconcile.Result{}, err // since result is empty, this will trigger exp backoff loop
-	}
-
-	// cfg, err := rest.InClusterConfig()
-	// if err != nil {
-	// 	log.Info("failed to setup in-cluster configuration")
-	// 	return reconcile.Result{}, nil
-	// }
-
-	cfg := ctrl.GetConfigOrDie()
-	clientset, err := kubernetes.NewForConfig(cfg)
-	if err != nil {
-		log.Info("failed to setup in-cluster client")
-		return reconcile.Result{}, nil
-	}
-
-	if superPod.Status.PodName != "" {
-		log.Info("superpod already created, skipping reconsile")
-
-	}
-
-	if !superPod.DeletionTimestamp.IsZero() {
-		log.Info("superpod deleted, finalizing deletion")
-		if err := r.Delete(ctx, superPod); err != nil {
-			log.Info("failed to delete superpod", "name", superPod.Name, "namespace", req.Namespace)
-			return reconcile.Result{}, err
+		if terminating {
+			// A name cannot be reused until deletion finishes. Watches normally
+			// wake us up; this short retry also covers a missed deletion event.
+			return ctrl.Result{RequeueAfter: time.Second}, nil
 		}
-		return reconcile.Result{}, nil
 	}
 
-	podCLient := &podCLient{
-		Clientset: clientset,
-		log:       log,
+	// Re-fetch before updating status so concurrent edits produce a conflict
+	// and retry rather than being overwritten. Avoid a write when unchanged.
+	if err := r.Get(ctx, req.NamespacedName, sp); err != nil {
+		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
-
-	log.Info("===== create new super pod ====")
-	podName, conditions, err := podCLient.createSuperPod(ctx, superPod.Spec.SuperAbility, req.Namespace, superPod.Name)
-	if err != nil {
-		log.Info("pod could not be created:", "name", superPod.Name, "namespace", req.Namespace)
-		return reconcile.Result{}, err
+	if sp.UID != ownerUID {
+		return ctrl.Result{RequeueAfter: time.Second}, nil
 	}
-
-	log.Info("==== update superpod.status.podname ====")
-	superPod.Status.PodName = podName
-
-	cs := []v1.Condition{}
-	for _, con := range conditions {
-		c := v1.Condition{}
-
-		c.Type = string(con.Type)
-		c.LastTransitionTime = con.LastTransitionTime
-		c.Message = con.Message
-		c.ObservedGeneration = con.ObservedGeneration
-		c.Reason = con.Reason
-		cs = append(cs, c)
+	if sp.DeletionTimestamp.IsZero() && sp.Status.PodName != pod.Name {
+		sp.Status.PodName = pod.Name
+		if err := r.Status().Update(ctx, sp); err != nil {
+			return ctrl.Result{}, err
+		}
 	}
-	superPod.Status.Conditions = cs
-
-	if err := r.Status().Update(ctx, superPod); err != nil {
-		log.Info("failed to update superpod", "name", superPod.Name, "namespace", req.Namespace)
-		return reconcile.Result{}, err
-	}
-
 	return ctrl.Result{}, nil
 }
 
-// SetupWithManager sets up the controller with the Manager.
+// SetupWithManager watches the Superpod and every kind of child it owns.
 func (r *SuperpodReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&superv1.Superpod{}).
+		Owns(&corev1.ServiceAccount{}).
+		Owns(&corev1.ConfigMap{}).
+		Owns(&corev1.Pod{}).
+		Owns(&corev1.Service{}).
+		Owns(&networkingv1.Ingress{}).
 		Named("superpod").
 		Complete(r)
-}
-
-type podCLient struct {
-	*kubernetes.Clientset
-	log logr.Logger
-}
-
-func (p *podCLient) createSuperPod(ctx context.Context, superAbility, namespace, superPodName string) (string, []corev1.PodCondition, error) {
-
-	pod := &corev1.Pod{}
-	pod.Name = namespace + "-supered"
-	pod.Labels = map[string]string{"parent": superPodName, "ability": superAbility}
-
-	p.log.Info("creating pod...")
-
-	ok, err := p.CoreV1().Pods(namespace).Create(ctx, pod, v1.CreateOptions{})
-	if err != nil {
-		return "", nil, fmt.Errorf("failed to create pod: %w", err)
-	}
-
-	p.log.Info("Created Pod", "name", ok.Name)
-
-	return ok.Name, ok.Status.Conditions, err
 }

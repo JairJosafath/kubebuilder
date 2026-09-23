@@ -5,16 +5,37 @@ metadata:
   name: manager-role
 rules:
 - apiGroups:
-  - super.elp-max.com
+  - ""
   resources:
-  - superpods
+  - configmaps
+  - pods
+  - serviceaccounts
+  - services
   verbs:
   - create
-  - delete
   - get
   - list
   - patch
   - update
+  - watch
+- apiGroups:
+  - networking.k8s.io
+  resources:
+  - ingresses
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - super.elp-max.com
+  resources:
+  - superpods
+  verbs:
+  - get
+  - list
   - watch
 - apiGroups:
   - super.elp-max.com
