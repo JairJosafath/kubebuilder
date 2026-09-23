@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -34,8 +35,11 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	superv1 "github.com/jairjosafath/operator/api/v1"
+	"github.com/jairjosafath/operator/internal/emoji"
 	"github.com/jairjosafath/operator/internal/resources"
 )
+
+const invisibilityAbility = "Invisibility"
 
 var _ = Describe("Superpod reconciliation", func() {
 	var sp *superv1.Superpod
@@ -93,6 +97,81 @@ var _ = Describe("Superpod reconciliation", func() {
 		}
 	})
 
+	It("opts into emoji, caches across reconciler restarts, and refreshes only when necessary", func() {
+		selector := &testEmojiSelector{}
+		reconciler.EmojiSelector = selector
+		reconcileOnce()
+		Expect(selector.calls).To(BeZero())
+		Expect(k8sClient.Get(ctx, request.NamespacedName, sp)).To(Succeed())
+		sp.Spec.Emoji = true
+		Expect(k8sClient.Update(ctx, sp)).To(Succeed())
+		reconcileOnce()
+		Expect(selector.calls).To(Equal(1))
+		cm := &corev1.ConfigMap{}
+		key := client.ObjectKeyFromObject(resources.NewConfigMap(sp))
+		Expect(k8sClient.Get(ctx, key, cm)).To(Succeed())
+		Expect(cm.Data["index.html"]).To(ContainSubstring("🦅"))
+		version := cm.ResourceVersion
+		pod := &corev1.Pod{}
+		Expect(k8sClient.Get(ctx, key, pod)).To(Succeed())
+		podUID := pod.UID
+		reconciler = &SuperpodReconciler{Client: k8sClient, Scheme: k8sClient.Scheme(), EmojiSelector: selector}
+		reconcileOnce()
+		Expect(selector.calls).To(Equal(1))
+		Expect(k8sClient.Get(ctx, key, cm)).To(Succeed())
+		Expect(cm.ResourceVersion).To(Equal(version))
+
+		// Repair HTML tampering from the cached selection without another call.
+		cm.Data["index.html"] = "changed"
+		Expect(k8sClient.Update(ctx, cm)).To(Succeed())
+		reconcileOnce()
+		Expect(selector.calls).To(Equal(1))
+		Expect(k8sClient.Get(ctx, key, cm)).To(Succeed())
+		Expect(cm.Data["index.html"]).To(ContainSubstring("🦅"))
+
+		Expect(k8sClient.Get(ctx, request.NamespacedName, sp)).To(Succeed())
+		sp.Spec.SuperAbility = invisibilityAbility
+		Expect(k8sClient.Update(ctx, sp)).To(Succeed())
+		reconcileOnce()
+		Expect(selector.calls).To(Equal(2))
+		Expect(k8sClient.Get(ctx, key, cm)).To(Succeed())
+		Expect(cm.Data["index.html"]).To(ContainSubstring("👻"))
+		Expect(cm.Data["index.html"]).NotTo(ContainSubstring("🦅"))
+		Expect(k8sClient.Get(ctx, key, pod)).To(Succeed())
+		Expect(pod.UID).To(Equal(podUID))
+
+		selector.version = "changed-model"
+		reconcileOnce()
+		Expect(selector.calls).To(Equal(3))
+		Expect(k8sClient.Get(ctx, request.NamespacedName, sp)).To(Succeed())
+		sp.Spec.Emoji = false
+		Expect(k8sClient.Update(ctx, sp)).To(Succeed())
+		reconcileOnce()
+		Expect(selector.calls).To(Equal(3))
+		Expect(k8sClient.Get(ctx, key, cm)).To(Succeed())
+		Expect(cm.Data).To(Equal(resources.NewConfigMap(sp).Data))
+	})
+
+	It("serves plain HTML on Jev failure and recovers on retry", func() {
+		sp.Spec.Emoji = true
+		Expect(k8sClient.Update(ctx, sp)).To(Succeed())
+		selector := &testEmojiSelector{err: errors.New("Jev returned HTTP 429")}
+		reconciler.EmojiSelector = selector
+		result, err := reconciler.Reconcile(ctx, request)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(result.RequeueAfter).To(Equal(time.Minute))
+		Expect(k8sClient.Get(ctx, request.NamespacedName, sp)).To(Succeed())
+		Expect(meta.FindStatusCondition(sp.Status.Conditions, "Ready").Reason).To(Equal("EmojiSelectionFailed"))
+		cm := &corev1.ConfigMap{}
+		Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(resources.NewConfigMap(sp)), cm)).To(Succeed())
+		Expect(cm.Data).To(Equal(resources.NewConfigMap(sp).Data))
+		Expect(fetchChildren()).To(HaveLen(5))
+		selector.err = nil
+		reconcileOnce()
+		Expect(k8sClient.Get(ctx, request.NamespacedName, sp)).To(Succeed())
+		Expect(meta.FindStatusCondition(sp.Status.Conditions, "Ready").Reason).To(Equal("PodNotReady"))
+	})
+
 	It("creates owned children and makes no writes on repeated reconciles", func() {
 		reconcileOnce()
 		before := fetchChildren()
@@ -138,13 +217,13 @@ var _ = Describe("Superpod reconciliation", func() {
 		cm.Annotations = map[string]string{"example.test/note": "keep"}
 		Expect(k8sClient.Update(ctx, cm)).To(Succeed())
 		Expect(k8sClient.Get(ctx, request.NamespacedName, sp)).To(Succeed())
-		sp.Spec.SuperAbility = "Invisibility"
+		sp.Spec.SuperAbility = invisibilityAbility
 		Expect(k8sClient.Update(ctx, sp)).To(Succeed())
 
 		reconcileOnce()
 		after := fetchChildren()
 		updated := after[1].(*corev1.ConfigMap)
-		Expect(updated.Data["index.html"]).To(ContainSubstring("Invisibility"))
+		Expect(updated.Data["index.html"]).To(ContainSubstring(invisibilityAbility))
 		Expect(updated.Labels).To(Equal(resources.NewConfigMap(sp).Labels))
 		Expect(updated.Annotations).To(HaveKeyWithValue("example.test/note", "keep"))
 		Expect(after[2].GetUID()).To(Equal(before[2].GetUID()))
@@ -341,3 +420,22 @@ var _ = Describe("Superpod reconciliation", func() {
 		Expect(sp.Status.URL).To(Equal("http://newer.example.test"))
 	})
 })
+
+type testEmojiSelector struct {
+	calls   int
+	err     error
+	version string
+}
+
+func (s *testEmojiSelector) CacheKey() string { return "test/" + s.version }
+
+func (s *testEmojiSelector) Select(_ context.Context, ability string) ([]emoji.Match, error) {
+	s.calls++
+	if s.err != nil {
+		return nil, s.err
+	}
+	if ability == invisibilityAbility {
+		return []emoji.Match{{Emoji: "👻", Name: "ghost", Score: 1}}, nil
+	}
+	return []emoji.Match{{Emoji: "🦅", Name: "eagle", Score: 1}}, nil
+}

@@ -3,6 +3,9 @@
 A Superpod creates an nginx Pod, an HTML ConfigMap, a ServiceAccount, a ClusterIP
 Service, and an Ingress. The webpage displays `spec.superAbility`.
 
+Optionally set `spec.emoji: true` to add up to three matching emoji using Jev.
+See [Jev emoji setup](docs/emoji.md) for API key configuration and selection rules.
+
 The controller repairs missing resources and reports a URL and readiness.
 Changing the ability updates the HTML without replacing the Pod. Deleting the
 Pod recreates it; deleting the Superpod lets Kubernetes clean up all its children.

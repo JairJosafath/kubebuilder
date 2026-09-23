@@ -112,6 +112,17 @@ func TestAbilityUpdateOnlyChangesHTML(t *testing.T) {
 	}
 }
 
+func TestEmojiPageEscapesAllText(t *testing.T) {
+	sp := exampleSuperpod()
+	sp.Spec.SuperAbility = "<script>ability</script>"
+	cm := resources.NewConfigMap(sp, "🦅", "<script>emoji</script>")
+	page := cm.Data["index.html"]
+	if strings.Contains(page, "<script>") || !strings.Contains(page, "🦅") ||
+		!strings.Contains(page, "&lt;script&gt;emoji&lt;/script&gt;") {
+		t.Fatal("the page must render Unicode and escape all external text")
+	}
+}
+
 func TestLongSuperpodNameProducesValidServiceName(t *testing.T) {
 	sp := exampleSuperpod()
 	sp.Name = strings.Repeat("long-name.", 20) + "example"

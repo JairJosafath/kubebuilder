@@ -49,6 +49,11 @@ spec:
           spec:
             description: spec defines the desired state of Superpod
             properties:
+              emoji:
+                description: |-
+                  emoji enables Jev emoji matching in the generated HTML page. The manager
+                  requires JEV_API_KEY when enabled. Disabled by default.
+                type: boolean
               host:
                 description: |-
                   host is the DNS hostname used by the Ingress, without a scheme or path.

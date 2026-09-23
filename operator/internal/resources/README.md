@@ -7,7 +7,9 @@ the API server, which has a namespace and UID.
 Read the files in this order:
 
 1. `metadata.go`: stable names and labels shared by the resources.
-2. `configmap.go`: generates `index.html`, escaping the ability as plain text.
+2. `configmap.go`: generates `index.html`, escaping the ability and optional emoji as plain text.
+   When `spec.emoji` is enabled, the controller selects emoji through Jev and
+   persists the selection alongside the HTML. See [emoji setup](../../docs/emoji.md).
 3. `serviceaccount.go`: the Pod's identity, with automatic API token mounting disabled.
 4. `pod.go`: nginx serves the ConfigMap mounted at `/usr/share/nginx/html`.
 5. `service.go`: a ClusterIP Service selects that Superpod's Pod by its UID label.

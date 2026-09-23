@@ -29,6 +29,11 @@ type SuperpodSpec struct {
 	// +required
 	SuperAbility string `json:"superAbility"`
 
+	// emoji enables Jev emoji matching in the generated HTML page. The manager
+	// requires JEV_API_KEY when enabled. Disabled by default.
+	// +optional
+	Emoji bool `json:"emoji,omitempty"`
+
 	// host is the DNS hostname used by the Ingress, without a scheme or path.
 	// It must resolve to the cluster's Ingress controller to reach the webpage.
 	// +kubebuilder:validation:MaxLength=253

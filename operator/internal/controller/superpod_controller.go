@@ -35,7 +35,8 @@ import (
 // SuperpodReconciler reconciles a Superpod object.
 type SuperpodReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme        *runtime.Scheme
+	EmojiSelector EmojiSelector
 }
 
 // +kubebuilder:rbac:groups=super.elp-max.com,resources=superpods,verbs=get;list;watch
@@ -59,9 +60,10 @@ func (r *SuperpodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	pod := resources.NewPod(sp)
+	page, emojiErr := r.emojiPage(ctx, sp)
 	children := []client.Object{
 		resources.NewServiceAccount(sp),
-		resources.NewConfigMap(sp),
+		page,
 		pod,
 		resources.NewService(sp),
 		resources.NewIngress(sp),
@@ -82,6 +84,14 @@ func (r *SuperpodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 				Message: "Waiting for a child resource to finish deletion before recreating it",
 			})
 		}
+	}
+
+	if emojiErr != nil {
+		// The plain ability page remains available while Jev is unavailable.
+		// A bounded retry avoids a hot loop on missing credentials or rate limits.
+		return ctrl.Result{RequeueAfter: time.Minute}, r.updateStatus(ctx, sp, pod.Name, metav1.Condition{
+			Status: metav1.ConditionFalse, Reason: "EmojiSelectionFailed", Message: emojiErr.Error(),
+		})
 	}
 
 	condition, err := r.readiness(ctx, sp)

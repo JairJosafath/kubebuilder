@@ -37,6 +37,7 @@ import (
 
 	superv1 "github.com/jairjosafath/operator/api/v1"
 	"github.com/jairjosafath/operator/internal/controller"
+	"github.com/jairjosafath/operator/internal/emoji"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -183,8 +184,9 @@ func main() {
 	}
 
 	if err := (&controller.SuperpodReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:        mgr.GetClient(),
+		Scheme:        mgr.GetScheme(),
+		EmojiSelector: emoji.NewClient(os.Getenv("JEV_API_KEY"), os.Getenv("JEV_MODEL")),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "superpod")
 		os.Exit(1)
