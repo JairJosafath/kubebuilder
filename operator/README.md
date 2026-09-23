@@ -93,6 +93,18 @@ curl --noproxy '*' --resolve superpod.localhost:80:127.0.0.1 http://superpod.loc
 
 ## Inspect or change the running demo
 
+To add the test cluster to your normal kubeconfig and make it the active context:
+
+```sh
+kind export kubeconfig --name superpod-e2e
+kubectl config use-context kind-superpod-e2e
+kubectl get superpods,pods,ingresses
+```
+
+This is optional; the test script keeps its kubeconfig separate by default.
+Use `kubectl config get-contexts` to list contexts and `kubectl config use-context <name>`
+to switch back to another cluster.
+
 Use the separate kubeconfig explicitly:
 
 ```sh
