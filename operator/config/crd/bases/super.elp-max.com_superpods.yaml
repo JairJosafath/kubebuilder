@@ -14,7 +14,17 @@ spec:
     singular: superpod
   scope: Namespaced
   versions:
-  - name: v1
+  - additionalPrinterColumns:
+    - jsonPath: .status.conditions[?(@.type=='Ready')].status
+      name: Ready
+      type: string
+    - jsonPath: .status.url
+      name: URL
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1
     schema:
       openAPIV3Schema:
         description: Superpod is the Schema for the superpods API
@@ -39,27 +49,36 @@ spec:
           spec:
             description: spec defines the desired state of Superpod
             properties:
-              podName:
-                description: foo is an example field of Superpod. Edit superpod_types.go
-                  to remove/update
+              host:
+                description: |-
+                  host is the DNS hostname used by the Ingress, without a scheme or path.
+                  It must resolve to the cluster's Ingress controller to reach the webpage.
+                maxLength: 253
+                pattern: ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$
+                type: string
+              ingressClassName:
+                description: |-
+                  ingressClassName selects the Ingress controller that serves the webpage.
+                  When omitted, the cluster must provide a default IngressClass.
+                maxLength: 253
+                minLength: 1
                 type: string
               superAbility:
+                description: superAbility is the text displayed on the nginx webpage.
+                maxLength: 256
+                minLength: 1
                 type: string
+            required:
+            - host
+            - superAbility
             type: object
           status:
             description: status defines the observed state of Superpod
             properties:
               conditions:
                 description: |-
-                  conditions represent the current state of the Superpod resource.
-                  Each condition has a unique type and reflects the status of a specific aspect of the resource.
-
-                  Standard condition types include:
-                  - "Available": the resource is fully functional
-                  - "Progressing": the resource is being created or updated
-                  - "Degraded": the resource failed to reach or maintain its desired state
-
-                  The status of each condition is one of True, False, or Unknown.
+                  conditions describe the observed state. The Ready condition indicates
+                  whether the managed resources are ready, with a reason and message.
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.
@@ -118,6 +137,15 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              podName:
+                description: podName is the name of the nginx Pod managed by this
+                  Superpod.
+                type: string
+              url:
+                description: |-
+                  url is the webpage address derived from the configured Ingress host.
+                  An address alone does not guarantee that DNS and routing are ready.
+                type: string
             type: object
         required:
         - spec

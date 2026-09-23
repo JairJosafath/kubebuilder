@@ -21,39 +21,42 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
-
-// SuperpodSpec defines the desired state of Superpod
+// SuperpodSpec defines the desired state supplied by the user.
 type SuperpodSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-	// The following markers will use OpenAPI v3 schema to validate the value
-	// More info: https://book.kubebuilder.io/reference/markers/crd-validation.html
+	// superAbility is the text displayed on the nginx webpage.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=256
+	// +required
+	SuperAbility string `json:"superAbility"`
 
-	// foo is an example field of Superpod. Edit superpod_types.go to remove/update
+	// host is the DNS hostname used by the Ingress, without a scheme or path.
+	// It must resolve to the cluster's Ingress controller to reach the webpage.
+	// +kubebuilder:validation:MaxLength=253
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$`
+	// +required
+	Host string `json:"host"`
+
+	// ingressClassName selects the Ingress controller that serves the webpage.
+	// When omitted, the cluster must provide a default IngressClass.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
 	// +optional
-	PodName      string `json:"podName,omitempty"`
-	SuperAbility string `json:"superAbility,omitempty"`
+	IngressClassName string `json:"ingressClassName,omitempty"`
 }
 
-// SuperpodStatus defines the observed state of Superpod.
+// SuperpodStatus records the state observed by the controller.
 type SuperpodStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
+	// podName is the name of the nginx Pod managed by this Superpod.
+	// +optional
+	PodName string `json:"podName,omitempty"`
 
-	// For Kubernetes API conventions, see:
-	// https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/api-conventions.md#typical-status-properties
+	// url is the webpage address derived from the configured Ingress host.
+	// An address alone does not guarantee that DNS and routing are ready.
+	// +optional
+	URL string `json:"url,omitempty"`
 
-	// conditions represent the current state of the Superpod resource.
-	// Each condition has a unique type and reflects the status of a specific aspect of the resource.
-	//
-	// Standard condition types include:
-	// - "Available": the resource is fully functional
-	// - "Progressing": the resource is being created or updated
-	// - "Degraded": the resource failed to reach or maintain its desired state
-	//
-	// The status of each condition is one of True, False, or Unknown.
+	// conditions describe the observed state. The Ready condition indicates
+	// whether the managed resources are ready, with a reason and message.
 	// +listType=map
 	// +listMapKey=type
 	// +optional
@@ -62,6 +65,9 @@ type SuperpodStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
+// +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=".status.conditions[?(@.type=='Ready')].status"
+// +kubebuilder:printcolumn:name="URL",type=string,JSONPath=".status.url"
+// +kubebuilder:printcolumn:name="Age",type=date,JSONPath=".metadata.creationTimestamp"
 
 // Superpod is the Schema for the superpods API
 type Superpod struct {

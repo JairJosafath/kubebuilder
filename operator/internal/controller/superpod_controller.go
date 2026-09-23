@@ -81,7 +81,7 @@ func (r *SuperpodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return reconcile.Result{}, nil
 	}
 
-	if superPod.Spec.PodName != "" {
+	if superPod.Status.PodName != "" {
 		log.Info("superpod already created, skipping reconsile")
 
 	}
@@ -107,8 +107,8 @@ func (r *SuperpodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return reconcile.Result{}, err
 	}
 
-	log.Info("==== update superpod.spec.podname ====")
-	superPod.Spec.PodName = podName
+	log.Info("==== update superpod.status.podname ====")
+	superPod.Status.PodName = podName
 
 	cs := []v1.Condition{}
 	for _, con := range conditions {
@@ -123,7 +123,7 @@ func (r *SuperpodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 	superPod.Status.Conditions = cs
 
-	if err := r.Update(ctx, superPod); err != nil {
+	if err := r.Status().Update(ctx, superPod); err != nil {
 		log.Info("failed to update superpod", "name", superPod.Name, "namespace", req.Namespace)
 		return reconcile.Result{}, err
 	}
@@ -157,7 +157,7 @@ func (p *podCLient) createSuperPod(ctx context.Context, superAbility, namespace,
 		return "", nil, fmt.Errorf("failed to create pod: %w", err)
 	}
 
-	p.log.Info("Created pod %q.\n", ok.GetObjectMeta().GetName())
+	p.log.Info("Created Pod", "name", ok.Name)
 
 	return ok.Name, ok.Status.Conditions, err
 }

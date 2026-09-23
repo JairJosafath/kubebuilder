@@ -54,7 +54,10 @@ var _ = Describe("Superpod Controller", func() {
 						Name:      resourceName,
 						Namespace: resourceNamespace,
 					},
-					// TODO(user): Specify other spec details if needed.
+					Spec: superv1.SuperpodSpec{
+						SuperAbility: "Flying",
+						Host:         "superpod.example.test",
+					},
 				}
 				Expect(k8sClient.Create(ctx, resource)).To(Succeed())
 			}
