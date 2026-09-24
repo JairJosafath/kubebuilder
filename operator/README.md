@@ -42,18 +42,61 @@ and cleanup.
 
 ### Real Kind cluster test and browser demo
 
-Prerequisites: Docker, Kind, kubectl, Helm, curl, ripgrep (`rg`), Go, and Make.
-Docker must be running. Port 80 inside the dev container must be free on the first
-run. The setup downloads the Traefik Helm chart and container images.
+Start with Bash and Make. `make test-superpod` checks for Go, Kind, kubectl, Helm,
+curl, ripgrep (`rg`), and Docker before running the test. Existing commands are
+reused; missing Go, Kind, kubectl, Helm, and ripgrep binaries are downloaded with
+checksum verification into `bin/` on Linux/macOS (amd64/arm64). Missing base
+utilities use apt, dnf, or Homebrew; missing Docker uses apt on Debian/Ubuntu or
+Docker Desktop via Homebrew on macOS. System package installation may require
+sudo. On other systems, install Docker first.
+
+Docker must be running and accessible to your user. The setup checks this before
+creating a cluster. Port 80 inside the dev container must be free on the first
+run. The test also downloads the Traefik Helm chart and container images.
 
 ```sh
-make test-superpod
+make setup-test-superpod    # Dependencies, cluster, and working kubectl context
+kubectl get nodes
+make test-superpod          # Deploy and test the operator; leave the demo running
+
+make stop-test-superpod     # Stop nodes; retain workloads for later
+make setup-test-superpod    # Resume, or recreate if the cluster is broken
+make destroy-test-superpod  # Delete the cluster and its local state
 ```
 
-This command creates or reuses the dedicated `superpod-e2e` cluster using
-`bin/superpod-e2e/config.kubeconfig`. It does not change your normal kubeconfig
-or use your existing `kind` cluster. It deploys the operator with its generated
-RBAC and installs Traefik as the test Ingress controller.
+To prepare dependencies without running the cluster test, use
+`make test-superpod-deps`. Running `bash hack/test-superpod.sh` also goes through
+the Makefile dependency setup. Download versions can be overridden with
+`GO_VERSION`, `KIND_VERSION`, `KUBECTL_VERSION`, `HELM_VERSION`, and `RG_VERSION`;
+these apply only when the corresponding command is missing. `LOCALBIN` changes
+the download and test state directory. `KIND`, `KUBECTL`, `HELM`, and `RG` can
+select existing executable paths.
+
+Make adds `bin/` to its command search path. If a command such as `kubectl` was
+downloaded there, run `export PATH="$PWD/bin:$PATH"` from the `operator` directory
+to use it directly in your terminal too.
+
+The `superpod-e2e` cluster is disposable. Setup checks its node containers,
+configuration fingerprint, API access, and node readiness. Healthy clusters with
+the recorded configuration are reused; stopped nodes are restarted. An existing
+cluster with unknown/changed configuration, replaced nodes, or failed health
+checks is deleted and recreated once from `test/superpod/kind.yaml`, including
+the port mapping used by Traefik. Recreating it deletes its workloads and Secrets.
+Other clusters are outside this workflow.
+
+Setup writes fresh credentials and the current API endpoint to
+`bin/superpod-e2e/config.kubeconfig`, then updates your normal kubeconfig and
+selects `kind-superpod-e2e`, so `kubectl get nodes` works immediately. If you set
+`KUBECONFIG`, that configuration is updated instead. Other kubeconfig entries
+are preserved. This also repairs stale API ports after cluster recreation.
+The tests always use the dedicated file.
+
+`make test-superpod` includes setup, then deploys the operator with its generated
+RBAC and installs Traefik. `make stop-test-superpod` retains the cluster and its
+state for resuming; `make destroy-test-superpod` removes the test cluster, its
+kubeconfig entries, and `bin/superpod-e2e/`, while keeping downloaded tools.
+`make clean-test-superpod` is an alias for destroy. Use `make test-superpod-setup`
+to test the lifecycle decisions without a real cluster.
 
 The test checks:
 
@@ -96,15 +139,13 @@ curl --noproxy '*' --resolve superpod.localhost:80:127.0.0.1 http://superpod.loc
 
 ## Inspect or change the running demo
 
-To add the test cluster to your normal kubeconfig and make it the active context:
+Setup already selects the test cluster in your kubeconfig. Inspect it with:
 
 ```sh
-kind export kubeconfig --name superpod-e2e
-kubectl config use-context kind-superpod-e2e
 kubectl get superpods,pods,ingresses
 ```
 
-This is optional; the test script keeps its kubeconfig separate by default.
+If the API endpoint becomes stale, rerun `make setup-test-superpod` to repair it.
 Use `kubectl config get-contexts` to list contexts and `kubectl config use-context <name>`
 to switch back to another cluster.
 
@@ -121,10 +162,12 @@ kubectl --kubeconfig bin/superpod-e2e/config.kubeconfig patch superpod superpod-
 Refresh the webpage after Kubernetes projects the updated ConfigMap. To rerun all
 checks, run `make test-superpod` again; it resets only its demo in the test cluster.
 
-To remove the dedicated test/demo cluster:
+To stop the demo while retaining its workloads, or destroy it completely:
 
 ```sh
-make clean-test-superpod
+make stop-test-superpod
+# Or:
+make destroy-test-superpod
 ```
 
 ## Use another cluster

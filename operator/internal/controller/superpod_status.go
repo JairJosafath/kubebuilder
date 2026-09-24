@@ -97,15 +97,15 @@ func (r *SuperpodReconciler) readiness(ctx context.Context, sp *superv1.Superpod
 // A condition's observedGeneration ties the report to the spec we reconciled.
 func (r *SuperpodReconciler) updateStatus(ctx context.Context, observed *superv1.Superpod, podName string, condition metav1.Condition) error {
 	current := &superv1.Superpod{}
-	
+
 	if err := r.Get(ctx, client.ObjectKeyFromObject(observed), current); err != nil {
 		return client.IgnoreNotFound(err)
 	}
-	
+
 	if !current.DeletionTimestamp.IsZero() {
 		return nil
 	}
-	
+
 	if current.UID != observed.UID || current.Generation != observed.Generation {
 		return apierrors.NewConflict(superv1.SchemeGroupVersion.WithResource("superpods").GroupResource(),
 			current.Name, errors.New("superpod changed during reconciliation; retrying with its latest spec"))
@@ -121,6 +121,6 @@ func (r *SuperpodReconciler) updateStatus(ctx context.Context, observed *superv1
 	if equality.Semantic.DeepEqual(before.Status, current.Status) {
 		return nil
 	}
-	
+
 	return r.Status().Update(ctx, current)
 }

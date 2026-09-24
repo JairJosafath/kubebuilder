@@ -8,7 +8,7 @@ metadata:
 spec:
   superAbility: "Flying"
   # Optional: match the ability to emoji using Jev (requires manager JEV_API_KEY).
-  # emoji: true
+  emoji: true
   # Configure DNS (or your hosts file) to point this host at your Ingress controller.
   host: superpod.example.test
   # Set this when your Ingress controller requires an explicit IngressClass.

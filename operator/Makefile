@@ -3,13 +3,6 @@ IMG ?= controller:latest
 # YEAR defines the year value used for substituting the YEAR placeholder in the boilerplate header.
 YEAR ?= $(shell date +%Y)
 
-# Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
-ifeq (,$(shell go env GOBIN))
-GOBIN=$(shell go env GOPATH)/bin
-else
-GOBIN=$(shell go env GOBIN)
-endif
-
 # CONTAINER_TOOL defines the container tool to be used for building images.
 # Be aware that the target commands are only tested with Docker which is
 # scaffolded by default. However, you might want to replace it to use other
@@ -107,12 +100,34 @@ lint-config: golangci-lint ## Verify golangci-lint linter configuration
 	"$(GOLANGCI_LINT)" config verify
 
 .PHONY: test-superpod
-test-superpod: ## Test the Superpod lifecycle and Ingress in a dedicated Kind cluster; leave a browser demo running.
-	bash hack/test-superpod.sh
+test-superpod: setup-test-superpod ## Test the Superpod lifecycle and Ingress in a dedicated Kind cluster; leave a browser demo running.
+	LOCALBIN="$(LOCALBIN)" KIND="$(KIND)" KUBECTL="$(KUBECTL)" HELM="$(HELM)" RG="$(RG)" KUSTOMIZE="$(KUSTOMIZE)" bash hack/test-superpod.sh --setup-ready
+
+.PHONY: test-superpod-deps
+test-superpod-deps: ## Install missing Superpod test tools and check Docker access.
+	LOCALBIN="$(LOCALBIN)" KIND="$(KIND)" KUBECTL="$(KUBECTL)" HELM="$(HELM)" RG="$(RG)" \
+		KIND_VERSION="$(KIND_VERSION)" KUBECTL_VERSION="$(KUBECTL_VERSION)" HELM_VERSION="$(HELM_VERSION)" \
+		RG_VERSION="$(RG_VERSION)" GO_VERSION="$(GO_VERSION)" bash hack/setup-superpod-deps.sh
+	$(MAKE) manifests generate kustomize
+
+.PHONY: setup-test-superpod
+setup-test-superpod: test-superpod-deps ## Prepare dependencies, repair/recreate the disposable cluster, and configure kubectl.
+	LOCALBIN="$(LOCALBIN)" KIND="$(KIND)" KUBECTL="$(KUBECTL)" RG="$(RG)" bash hack/setup-superpod-cluster.sh
+
+.PHONY: stop-test-superpod
+stop-test-superpod: ## Stop the test nodes while retaining workloads; setup-test-superpod resumes them.
+	LOCALBIN="$(LOCALBIN)" KIND="$(KIND)" KUBECTL="$(KUBECTL)" bash hack/setup-superpod-cluster.sh stop
+
+.PHONY: destroy-test-superpod
+destroy-test-superpod: ## Delete the disposable test cluster, its kubeconfig entries, and local test state.
+	LOCALBIN="$(LOCALBIN)" KIND="$(KIND)" KUBECTL="$(KUBECTL)" bash hack/setup-superpod-cluster.sh destroy
+
+.PHONY: test-superpod-setup
+test-superpod-setup: ## Check cluster setup decisions with mocked tools; no Docker or cluster required.
+	bash hack/setup-superpod-cluster_test.sh
 
 .PHONY: clean-test-superpod
-clean-test-superpod: ## Remove only the dedicated Superpod test/demo cluster.
-	KUBECONFIG="$(LOCALBIN)/superpod-e2e/config.kubeconfig" $(KIND) delete cluster --name superpod-e2e
+clean-test-superpod: destroy-test-superpod ## Alias for destroy-test-superpod.
 
 ##@ Build
 
@@ -189,18 +204,27 @@ undeploy: kustomize ## Undeploy controller from the K8s cluster specified in ~/.
 
 ## Location to install dependencies to
 LOCALBIN ?= $(shell pwd)/bin
+# Make downloaded tools visible to recipes and recursive make invocations.
+export PATH := $(LOCALBIN):$(PATH)
 $(LOCALBIN):
 	mkdir -p "$(LOCALBIN)"
 
 ## Tool Binaries
 KUBECTL ?= kubectl
 KIND ?= kind
-KUSTOMIZE ?= $(LOCALBIN)/kustomize
-CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen
+HELM ?= helm
+RG ?= rg
+KUSTOMIZE ?= $(or $(shell command -v kustomize 2>/dev/null),$(LOCALBIN)/kustomize)
+CONTROLLER_GEN ?= $(or $(shell command -v controller-gen 2>/dev/null),$(LOCALBIN)/controller-gen)
 ENVTEST ?= $(LOCALBIN)/setup-envtest
 GOLANGCI_LINT = $(LOCALBIN)/golangci-lint
 
 ## Tool Versions
+KIND_VERSION ?= v0.33.0
+KUBECTL_VERSION ?= v1.37.0
+HELM_VERSION ?= v4.3.0
+RG_VERSION ?= 14.1.1
+GO_VERSION ?= $(shell awk '/^go / {print $$2; exit}' go.mod)
 KUSTOMIZE_VERSION ?= v5.8.1
 CONTROLLER_TOOLS_VERSION ?= v0.22.0
 
@@ -217,12 +241,12 @@ ENVTEST_K8S_VERSION ?= $(shell v='$(call gomodver,k8s.io/api)'; \
 GOLANGCI_LINT_VERSION ?= v2.13.1
 .PHONY: kustomize
 kustomize: $(KUSTOMIZE) ## Download kustomize locally if necessary.
-$(KUSTOMIZE): $(LOCALBIN)
+$(KUSTOMIZE): | $(LOCALBIN)
 	$(call go-install-tool,$(KUSTOMIZE),sigs.k8s.io/kustomize/kustomize/v5,$(KUSTOMIZE_VERSION))
 
 .PHONY: controller-gen
 controller-gen: $(CONTROLLER_GEN) ## Download controller-gen locally if necessary.
-$(CONTROLLER_GEN): $(LOCALBIN)
+$(CONTROLLER_GEN): | $(LOCALBIN)
 	$(call go-install-tool,$(CONTROLLER_GEN),sigs.k8s.io/controller-tools/cmd/controller-gen,$(CONTROLLER_TOOLS_VERSION))
 
 .PHONY: setup-envtest
