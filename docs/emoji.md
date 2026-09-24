@@ -29,7 +29,7 @@ make run
 
 For a deployed manager, the normal deployment creates an empty
 `operator-jev-api` Secret in `operator-system` alongside the controller. From
-the `operator` directory, deploy your image and then patch the existing Secret:
+the repository root, deploy your image and then patch the existing Secret:
 
 ```bash
 make deploy IMG=<your-registry>/operator:<tag>

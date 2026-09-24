@@ -12,3 +12,7 @@
 # Re-include Go module files
 !go.mod
 !go.sum
+
+# Include the catalog embedded by internal/emoji/catalog.go and its license.
+!internal/emoji/emoji-test.txt
+!internal/emoji/UNICODE-LICENSE.txt

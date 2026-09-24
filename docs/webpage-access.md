@@ -42,7 +42,7 @@ operator. An existing third-party Ingress controller is also suitable.
 
 ## 2. Run the operator and create a Superpod
 
-From the `operator` directory, install the CRD and run the controller locally:
+From the repository root, install the CRD and run the controller locally:
 
 ```sh
 make install

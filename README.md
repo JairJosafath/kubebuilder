@@ -16,7 +16,12 @@ and API create/update operations live in `internal/resources/`.
 
 ## Run the tests
 
-Run these commands from the `operator` directory.
+Run these commands from the repository root (`kubebuilder/`).
+
+The Go module, `PROJECT`, Makefile, Dockerfile, source directories, and `config/`
+all live at this root. GitHub Actions runs its lint and test commands here too.
+The default dev-container configuration is `.devcontainer/devcontainer.json`;
+the alternative Go-image configuration is `.devcontainer/operator/devcontainer.json`.
 
 ### Helpers and reconciliation tests
 
@@ -73,7 +78,7 @@ the download and test state directory. `KIND`, `KUBECTL`, `HELM`, and `RG` can
 select existing executable paths.
 
 Make adds `bin/` to its command search path. If a command such as `kubectl` was
-downloaded there, run `export PATH="$PWD/bin:$PATH"` from the `operator` directory
+downloaded there, run `export PATH="$PWD/bin:$PATH"` from the repository root
 to use it directly in your terminal too.
 
 The `superpod-e2e` cluster is disposable. Setup checks its node containers,
