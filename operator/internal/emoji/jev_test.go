@@ -14,8 +14,10 @@ import (
 )
 
 const (
-	eagleName  = "eagle"
-	testAPIKey = "test-key"
+	eagleName      = "eagle"
+	testAPIKey     = "test-key"
+	flyingAbility  = "Flying"
+	testChoiceType = "choice"
 )
 
 func TestRankingAndCloseScores(t *testing.T) {
@@ -67,6 +69,7 @@ func TestSelectUsesEntireCatalogAndReranksFinalists(t *testing.T) {
 	}
 	seen := make(map[string]bool)
 	calls := 0
+	multiQuestion := false
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls++
 		if r.Method != http.MethodPost || r.Header.Get("Authorization") != "Bearer test-key" ||
@@ -84,24 +87,20 @@ func TestSelectUsesEntireCatalogAndReranksFinalists(t *testing.T) {
 		if err := json.Unmarshal(body, &req); err != nil {
 			t.Error(err)
 		}
-		q := req.Questions["emoji"]
-		if len(q.Criteria) > 255 || len(q.Criteria) < 2 || q.Type != "choice" || req.State["super_ability"] != "Flying" {
-			t.Error("incorrect Jev question")
+		if len(req.Questions) > maxQuestions || req.State["super_ability"] != flyingAbility {
+			t.Error("incorrect Jev request")
 		}
-		probabilities := make(map[string]float64)
-		for symbol := range q.Criteria {
-			seen[symbol] = true
-			probabilities[symbol] = 0
-		}
-		if _, ok := q.Criteria["🦅"]; ok {
-			probabilities["🦅"] = 1
-		} else {
-			probabilities[slices.Sorted(maps.Keys(q.Criteria))[0]] = 1
+		multiQuestion = multiQuestion || len(req.Questions) > 1
+		for _, q := range req.Questions {
+			if len(q.Criteria) > maxChoiceOptions || len(q.Criteria) < 2 || q.Type != testChoiceType {
+				t.Error("incorrect Jev question")
+			}
+			for symbol := range q.Criteria {
+				seen[symbol] = true
+			}
 		}
 		if err := json.NewEncoder(w).Encode(map[string]any{
-			"code": 0, "data": map[string]any{"answers": map[string]any{"emoji": map[string]any{
-				"type": "choice", "probabilities": probabilities,
-			}}},
+			"code": 0, "data": map[string]any{"answers": stubAnswers(req.Questions)},
 		}); err != nil {
 			t.Error(err)
 		}
@@ -109,13 +108,31 @@ func TestSelectUsesEntireCatalogAndReranksFinalists(t *testing.T) {
 	defer server.Close()
 	c := NewClient(testAPIKey, "")
 	c.endpoint = server.URL
-	selected, err := c.Select(context.Background(), "Flying")
+	selected, err := c.Select(context.Background(), flyingAbility)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(selected) != 1 || selected[0].Emoji != "🦅" || len(seen) != len(catalog) || calls < 2 {
+	if len(selected) != 1 || selected[0].Emoji != "🦅" || len(seen) != len(catalog) || calls < 2 || calls >= 21 || !multiQuestion {
 		t.Fatalf("incomplete selection: matches=%v catalog=%d/%d calls=%d", selected, len(seen), len(catalog), calls)
 	}
+	t.Logf("Selected from %d catalog entries in %d HTTP requests", len(catalog), calls)
+}
+
+func stubAnswers(questions map[string]question) map[string]any {
+	answers := make(map[string]any, len(questions))
+	for id, q := range questions {
+		probabilities := make(map[string]float64, len(q.Criteria))
+		for symbol := range q.Criteria {
+			probabilities[symbol] = 0
+		}
+		winner := slices.Sorted(maps.Keys(q.Criteria))[0]
+		if _, ok := q.Criteria["🦅"]; ok {
+			winner = "🦅"
+		}
+		probabilities[winner] = 1
+		answers[id] = map[string]any{"type": testChoiceType, "probabilities": probabilities}
+	}
+	return answers
 }
 
 func TestJevErrorsAreSafe(t *testing.T) {
@@ -138,13 +155,13 @@ func TestJevErrorsAreSafe(t *testing.T) {
 			defer server.Close()
 			c := NewClient(testAPIKey, "")
 			c.endpoint = server.URL
-			_, err := c.Select(context.Background(), "Flying")
+			_, err := c.Select(context.Background(), flyingAbility)
 			if err == nil || strings.Contains(err.Error(), testAPIKey) {
 				t.Fatalf("expected sanitized error: %v", err)
 			}
 		})
 	}
-	if _, err := NewClient("", "").Select(context.Background(), "Flying"); err == nil {
+	if _, err := NewClient("", "").Select(context.Background(), flyingAbility); err == nil {
 		t.Fatal("missing credentials must fail without an API call")
 	}
 }
@@ -152,7 +169,7 @@ func TestJevErrorsAreSafe(t *testing.T) {
 func TestCanceledRequest(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, err := NewClient(testAPIKey, "").Select(ctx, "Flying"); err == nil {
+	if _, err := NewClient(testAPIKey, "").Select(ctx, flyingAbility); err == nil {
 		t.Fatal("canceled request must fail")
 	}
 }

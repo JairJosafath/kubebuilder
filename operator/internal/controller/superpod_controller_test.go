@@ -152,6 +152,22 @@ var _ = Describe("Superpod reconciliation", func() {
 		Expect(cm.Data).To(Equal(resources.NewConfigMap(sp).Data))
 	})
 
+	It("reports the Jev cooldown and schedules its next attempt", func() {
+		sp.Spec.Emoji = true
+		Expect(k8sClient.Update(ctx, sp)).To(Succeed())
+		retryAt := time.Now().Add(5 * time.Minute)
+		reconciler.EmojiSelector = &testEmojiSelector{err: &emoji.RateLimitError{RetryAt: retryAt}}
+		result, err := reconciler.Reconcile(ctx, request)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(result.RequeueAfter).To(BeNumerically(">", 4*time.Minute))
+		Expect(result.RequeueAfter).To(BeNumerically("<=", 5*time.Minute))
+		Expect(k8sClient.Get(ctx, request.NamespacedName, sp)).To(Succeed())
+		condition := meta.FindStatusCondition(sp.Status.Conditions, "Ready")
+		Expect(condition.Reason).To(Equal("EmojiRateLimited"))
+		Expect(condition.Message).To(ContainSubstring(retryAt.UTC().Format(time.RFC3339)))
+		Expect(fetchChildren()).To(HaveLen(5))
+	})
+
 	It("serves plain HTML on Jev failure and recovers on retry", func() {
 		sp.Spec.Emoji = true
 		Expect(k8sClient.Update(ctx, sp)).To(Succeed())

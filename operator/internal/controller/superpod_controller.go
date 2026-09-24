@@ -29,6 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	superv1 "github.com/jairjosafath/operator/api/v1"
+	"github.com/jairjosafath/operator/internal/emoji"
 	"github.com/jairjosafath/operator/internal/resources"
 )
 
@@ -88,9 +89,12 @@ func (r *SuperpodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 	if emojiErr != nil {
 		// The plain ability page remains available while Jev is unavailable.
-		// A bounded retry avoids a hot loop on missing credentials or rate limits.
-		return ctrl.Result{RequeueAfter: time.Minute}, r.updateStatus(ctx, sp, pod.Name, metav1.Condition{
-			Status: metav1.ConditionFalse, Reason: "EmojiSelectionFailed", Message: emojiErr.Error(),
+		delay, reason := time.Minute, "EmojiSelectionFailed"
+		if rateLimit, ok := errors.AsType[*emoji.RateLimitError](emojiErr); ok {
+			delay, reason = max(time.Second, time.Until(rateLimit.RetryAt)), "EmojiRateLimited"
+		}
+		return ctrl.Result{RequeueAfter: delay}, r.updateStatus(ctx, sp, pod.Name, metav1.Condition{
+			Status: metav1.ConditionFalse, Reason: reason, Message: emojiErr.Error(),
 		})
 	}
 
