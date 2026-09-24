@@ -3,4 +3,14 @@ kind: Superpod
 metadata:
   name: prime-resource-1
 spec: 
-  superAbility: "hyper-metrics"
+  superAbility: Hypermetrics
+  host: superpod.example2.localhost
+---
+apiVersion: super.elp-max.com/v1
+kind: Superpod
+metadata:
+  name: flying-demo
+spec:
+  superAbility: Flying
+  emoji: true
+  host: superpod.example.localhost

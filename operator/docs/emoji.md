@@ -27,19 +27,29 @@ make install
 make run
 ```
 
-For a deployed manager, create its Secret and apply the optional overlay from
-the `operator` directory. Use the same image configuration as your usual
-deployment; rebuild the operator image to include this feature first.
+For a deployed manager, the normal deployment creates an empty
+`operator-jev-api` Secret in `operator-system` alongside the controller. From
+the `operator` directory, deploy your image and then patch the existing Secret:
 
 ```bash
-kubectl create namespace operator-system --dry-run=client -o yaml | kubectl apply -f -
-printf '%s' "$JEV_API_KEY" | kubectl -n operator-system create secret generic jev-api \
-  --from-file=JEV_API_KEY=/dev/stdin --dry-run=client -o yaml | kubectl apply -f -
-kubectl apply -k config/emoji
+make deploy IMG=<your-registry>/operator:<tag>
+kubectl -n operator-system patch secret operator-jev-api --type=merge \
+  -p '{"stringData":{"JEV_API_KEY":"<your-Jev-API-key>"}}'
+kubectl -n operator-system rollout restart deployment/operator-controller-manager
+kubectl -n operator-system rollout status deployment/operator-controller-manager
 ```
 
+Replace the key placeholder with your key. The manager starts without a key; plain Superpods
+continue working, while emoji-enabled Superpods report `EmojiSelectionFailed`
+until a key is configured. Restart after the initial patch and after each key
+rotation because the manager reads the key from its environment at startup.
+Reapplying the deployment preserves the patched key; the Secret manifest does
+not manage its data. `config/emoji` remains an alias for the default deployment.
+If you used the previous manually created `jev-api` Secret, patch
+`operator-jev-api` with your key when upgrading; the manager now uses that Secret.
+
 Only the manager receives the key; nginx, Superpod specs, generated HTML, and
-cached results never contain it. Restart the manager after rotating the Secret.
+cached results never contain it.
 `JEV_MODEL` optionally selects a Jev model identifier supported by the service;
 when absent, the service selects its default. The manager needs outbound HTTPS
 access to `www.jevai.org`.

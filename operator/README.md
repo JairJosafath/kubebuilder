@@ -150,6 +150,9 @@ make install
 make deploy IMG=<your-registry>/operator:<tag>
 ```
 
+Deployment also creates an empty `operator-jev-api` Secret in `operator-system`.
+To enable Jev emoji matching, [patch that Secret and restart the controller](docs/emoji.md#configure-the-key).
+
 `Ready=True` means nginx is ready and Ingress status has an address. Browser DNS
 and connectivity still need to work. This learning project currently uses HTTP;
 ConfigMap user-access restrictions and TLS are outside its implemented scope.

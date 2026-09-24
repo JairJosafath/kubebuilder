@@ -65,6 +65,13 @@ spec:
           - --health-probe-bind-address=:8081
         image: controller:latest
         name: manager
+        env:
+        - name: JEV_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: jev-api
+              key: JEV_API_KEY
+              optional: true
         ports:
         - containerPort: 8081
           name: health
