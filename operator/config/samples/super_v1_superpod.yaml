@@ -1,0 +1,15 @@
+apiVersion: super.elp-max.com/v1
+kind: Superpod
+metadata:
+  labels:
+    app.kubernetes.io/name: operator
+    app.kubernetes.io/managed-by: kustomize
+  name: superpod-sample
+spec:
+  superAbility: "Flying"
+  # Optional: match the ability to emoji using Jev (requires manager JEV_API_KEY).
+  emoji: true
+  # Configure DNS (or your hosts file) to point this host at your Ingress controller.
+  host: superpod.example.test
+  # Set this when your Ingress controller requires an explicit IngressClass.
+  # ingressClassName: your-ingress-class

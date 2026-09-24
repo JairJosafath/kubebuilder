@@ -5,27 +5,48 @@ metadata:
   name: manager-role
 rules:
 - apiGroups:
-  - testee.elp-max.com
+  - ""
   resources:
-  - testees
+  - configmaps
+  - pods
+  - serviceaccounts
+  - services
   verbs:
   - create
-  - delete
   - get
   - list
   - patch
   - update
   - watch
 - apiGroups:
-  - testee.elp-max.com
+  - networking.k8s.io
   resources:
-  - testees/finalizers
+  - ingresses
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - super.elp-max.com
+  resources:
+  - superpods
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - super.elp-max.com
+  resources:
+  - superpods/finalizers
   verbs:
   - update
 - apiGroups:
-  - testee.elp-max.com
+  - super.elp-max.com
   resources:
-  - testees/status
+  - superpods/status
   verbs:
   - get
   - patch

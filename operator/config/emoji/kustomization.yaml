@@ -1,0 +1,5 @@
+# Compatibility entry point: the default deployment includes the Jev Secret.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../default

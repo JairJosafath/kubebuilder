@@ -35,8 +35,9 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
-	testeev1 "github.com/jairjosafath/operator/api/v1"
+	superv1 "github.com/jairjosafath/operator/api/v1"
 	"github.com/jairjosafath/operator/internal/controller"
+	"github.com/jairjosafath/operator/internal/emoji"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -48,7 +49,7 @@ var (
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 
-	utilruntime.Must(testeev1.AddToScheme(scheme))
+	utilruntime.Must(superv1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 }
 
@@ -182,11 +183,12 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := (&controller.TesteeReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+	if err := (&controller.SuperpodReconciler{
+		Client:        mgr.GetClient(),
+		Scheme:        mgr.GetScheme(),
+		EmojiSelector: emoji.NewClient(os.Getenv("JEV_API_KEY"), os.Getenv("JEV_MODEL")),
 	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "Failed to create controller", "controller", "testee")
+		setupLog.Error(err, "Failed to create controller", "controller", "superpod")
 		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder

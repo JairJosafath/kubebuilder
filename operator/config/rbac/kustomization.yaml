@@ -22,7 +22,7 @@ resources:
 # default, aiding admins in cluster management. Those roles are
 # not used by the operator itself. You can comment the following lines
 # if you do not want those helpers be installed with your Project.
-- testee_admin_role.yaml
-- testee_editor_role.yaml
-- testee_viewer_role.yaml
+- superpod_admin_role.yaml
+- superpod_editor_role.yaml
+- superpod_viewer_role.yaml
 

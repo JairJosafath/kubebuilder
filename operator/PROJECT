@@ -14,8 +14,8 @@ resources:
     namespaced: true
   controller: true
   domain: elp-max.com
-  group: testee
-  kind: Testee
+  group: super
+  kind: Superpod
   path: github.com/jairjosafath/operator/api/v1
   version: v1
 version: "3"

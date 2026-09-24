@@ -1,0 +1,22 @@
+# Test-only ingress configuration. No NodePort or cloud load balancer needed.
+providers:
+  kubernetesCRD:
+    enabled: false
+  kubernetesIngress:
+    enabled: true
+    publishedService:
+      enabled: false
+    ingressEndpoint:
+      ip: "127.0.0.1"
+ingressRoute:
+  dashboard:
+    enabled: false
+service:
+  type: ClusterIP
+ports:
+  web:
+    port: 8000
+    hostPort: 8000
+  websecure:
+    expose:
+      default: false

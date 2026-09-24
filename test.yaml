@@ -1,8 +1,16 @@
-apiVersion: testee.elp-max.com/v1 
-kind: Testee
+apiVersion:  super.elp-max.com/v1 
+kind: Superpod
 metadata:
   name: prime-resource-1
 spec: 
-  foo: "bar-1"
-status:
-  phase: "state value retrieved from resource"
+  superAbility: Hypermetrics
+  host: superpod.example2.localhost
+---
+apiVersion: super.elp-max.com/v1
+kind: Superpod
+metadata:
+  name: flying-demo
+spec:
+  superAbility: Flying
+  emoji: true
+  host: superpod.example.localhost

@@ -1,0 +1,9 @@
+apiVersion: super.elp-max.com/v1
+kind: Superpod
+metadata:
+  name: superpod-demo
+  namespace: default
+spec:
+  superAbility: Flying
+  host: superpod.localhost
+  ingressClassName: traefik
