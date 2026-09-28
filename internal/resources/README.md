@@ -7,9 +7,9 @@ the API server, which has a namespace and UID.
 Read the files in this order:
 
 1. `metadata.go`: stable names and labels shared by the resources.
-2. `configmap.go`: generates `index.html`, escaping the ability and optional emoji as plain text.
-   When `spec.emoji` is enabled, the controller selects emoji through Jev and
-   persists the selection alongside the HTML. See [emoji setup](../../docs/emoji.md).
+2. `configmap.go`: stores the page rendered by [`internal/webpage`](../webpage/) as
+   `index.html`. When `spec.emoji` is enabled, it also stores the emoji selection
+   behind the page, so later reconciles can reuse it. See [emoji setup](../../docs/emoji.md).
 3. `serviceaccount.go`: the Pod's identity, with automatic API token mounting disabled.
 4. `pod.go`: nginx serves the ConfigMap mounted at `/usr/share/nginx/html`.
 5. `service.go`: a ClusterIP Service selects that Superpod's Pod by its UID label.
@@ -23,6 +23,9 @@ The HTML directory is mounted without `subPath`, allowing Kubernetes to project
 ConfigMap changes into the running Pod. Propagation is eventual, not immediate.
 The Pod uses the official `nginx:stable-alpine` image with `Always` pull policy;
 this tag can receive updates when a new Pod starts.
+
+`readiness.go` contains `Readiness`, which judges the observed Pod and Ingress
+without API calls; the controller only fetches them.
 
 `reconcile.go` contains `Ensure`, which performs the API operations:
 
@@ -54,7 +57,7 @@ ConfigMap API
 access restrictions are skipped; the generated controller RBAC only supplies
 the operator's own required permissions.
 
-Run the helper tests without a cluster using `go test ./internal/resources`.
+Run the helper tests without a cluster using `make test-unit`.
 Run `make test` for reconciliation tests against an isolated envtest API server.
 Envtest has no kubelet or garbage collector: it validates API behavior, ownership,
 and watches, but cannot prove that nginx serves traffic or that GC removes children.

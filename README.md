@@ -10,9 +10,10 @@ The controller repairs missing resources and reports a URL and readiness.
 Changing the ability updates the HTML without replacing the Pod. Deleting the
 Pod recreates it; deleting the Superpod lets Kubernetes clean up all its children.
 
-Start with [the resource helpers](internal/resources/README.md) and then read
-[the controller](internal/controller/superpod_controller.go). Resource definitions
-and API create/update operations live in `internal/resources/`.
+Start with [the architecture overview](docs/architecture.md): it shows where each
+kind of code lives and which conventions apply there. Then read the business rules
+in [`internal/webpage`](internal/webpage/), [the resource helpers](internal/resources/README.md),
+and [the controller](internal/controller/superpod_controller.go).
 
 ## Run the tests
 
@@ -33,11 +34,14 @@ lint, and envtest tools as needed.
 # Does not deploy anything into your current Kubernetes cluster.
 make test
 
-# Just the resource builders, without starting an API server.
-go test ./internal/resources
+# Business rules and adapters only: seconds, without an API server.
+make test-unit
 
-# Check Go code style.
+# Check Go code style and the package layering rules.
 make lint
+
+# Everything CI checks: generated files, lint, and tests.
+make check
 ```
 
 The controller tests cover repeated reconciliation, ownership collisions, missing
