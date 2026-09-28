@@ -20,7 +20,7 @@ import (
 // The Pod probe checks nginx; the Ingress controller publishes its address.
 func (r *SuperpodReconciler) readiness(ctx context.Context, sp *superv1.Superpod) (metav1.Condition, error) {
 	pendingPod := metav1.Condition{
-		Status: metav1.ConditionFalse, Reason: "PodNotReady",
+		Status: metav1.ConditionFalse, Reason: superv1.PodNotReadyReason,
 		Message: "Waiting for the nginx Pod to be running and pass its readiness probe",
 	}
 
@@ -48,7 +48,7 @@ func (r *SuperpodReconciler) readiness(ctx context.Context, sp *superv1.Superpod
 	}
 
 	pendingIngress := metav1.Condition{
-		Status: metav1.ConditionFalse, Reason: "IngressPending",
+		Status: metav1.ConditionFalse, Reason: superv1.IngressPendingReason,
 		Message: "Waiting for an Ingress address; check the Ingress controller, class, and address publishing configuration",
 	}
 
@@ -65,7 +65,7 @@ func (r *SuperpodReconciler) readiness(ctx context.Context, sp *superv1.Superpod
 	for _, address := range ingress.Status.LoadBalancer.Ingress {
 		if address.IP != "" || address.Hostname != "" {
 			return metav1.Condition{
-				Status: metav1.ConditionTrue, Reason: "ResourcesReady",
+				Status: metav1.ConditionTrue, Reason: superv1.ResourcesReadyReason,
 				Message: "The nginx Pod is ready and the Ingress has an address; browser DNS and connectivity must be configured separately",
 			}, nil
 		}
@@ -95,7 +95,7 @@ func (r *SuperpodReconciler) updateStatus(ctx context.Context, observed *superv1
 	before := current.DeepCopy()
 	current.Status.PodName = podName
 	current.Status.URL = "http://" + observed.Spec.Host
-	condition.Type = "Ready"
+	condition.Type = superv1.ReadyCondition
 	condition.ObservedGeneration = observed.Generation
 	// SetStatusCondition preserves LastTransitionTime when the status is unchanged.
 	meta.SetStatusCondition(&current.Status.Conditions, condition)

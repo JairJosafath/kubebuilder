@@ -57,7 +57,7 @@ func (r *SuperpodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		terminating, err := resources.Ensure(ctx, r.Client, r.Scheme, sp, child)
 		if err != nil {
 			statusErr := r.updateStatus(ctx, sp, sp.Status.PodName, metav1.Condition{
-				Status: metav1.ConditionFalse, Reason: "ReconcileFailed", Message: err.Error(),
+				Status: metav1.ConditionFalse, Reason: superv1.ReconcileFailedReason, Message: err.Error(),
 			})
 			return ctrl.Result{}, errors.Join(err, statusErr)
 		}
@@ -65,7 +65,7 @@ func (r *SuperpodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			// A name cannot be reused until deletion finishes. Watches normally
 			// wake us up; this short retry also covers a missed deletion event.
 			return ctrl.Result{RequeueAfter: time.Second}, r.updateStatus(ctx, sp, sp.Status.PodName, metav1.Condition{
-				Status: metav1.ConditionFalse, Reason: "ResourceTerminating",
+				Status: metav1.ConditionFalse, Reason: superv1.ResourceTerminatingReason,
 				Message: "Waiting for a child resource to finish deletion before recreating it",
 			})
 		}
@@ -73,9 +73,9 @@ func (r *SuperpodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 	if emojiErr != nil {
 		// The plain ability page remains available while Jev is unavailable.
-		delay, reason := time.Minute, "EmojiSelectionFailed"
+		delay, reason := time.Minute, superv1.EmojiSelectionFailedReason
 		if rateLimit, ok := errors.AsType[*emoji.RateLimitError](emojiErr); ok {
-			delay, reason = max(time.Second, time.Until(rateLimit.RetryAt)), "EmojiRateLimited"
+			delay, reason = max(time.Second, time.Until(rateLimit.RetryAt)), superv1.EmojiRateLimitedReason
 		}
 		return ctrl.Result{RequeueAfter: delay}, r.updateStatus(ctx, sp, pod.Name, metav1.Condition{
 			Status: metav1.ConditionFalse, Reason: reason, Message: emojiErr.Error(),
@@ -85,7 +85,7 @@ func (r *SuperpodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	condition, err := r.readiness(ctx, sp)
 	if err != nil {
 		statusErr := r.updateStatus(ctx, sp, pod.Name, metav1.Condition{
-			Status: metav1.ConditionUnknown, Reason: "ObservationFailed", Message: err.Error(),
+			Status: metav1.ConditionUnknown, Reason: superv1.ObservationFailedReason, Message: err.Error(),
 		})
 		return ctrl.Result{}, errors.Join(err, statusErr)
 	}
