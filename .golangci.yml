@@ -8,22 +8,25 @@ linters:
     - depguard
     - dupl
     - errcheck
+    - errorlint
     - ginkgolinter
     - goconst
     - gocyclo
     - govet
+    - importas
     - ineffassign
     - lll
-    - modernize
+    - logcheck
     - misspell
+    - modernize
     - nakedret
+    - nolintlint
     - prealloc
     - revive
     - staticcheck
     - unconvert
     - unparam
     - unused
-    - logcheck
   settings:
     custom:
       logcheck:
@@ -35,10 +38,50 @@ linters:
           deny:
             - pkg: sort
               desc: Should be replaced with slices package
+    importas:
+      no-unaliased: true
+      alias:
+        - pkg: k8s.io/api/core/v1
+          alias: corev1
+        - pkg: k8s.io/api/networking/v1
+          alias: networkingv1
+        - pkg: k8s.io/apimachinery/pkg/apis/meta/v1
+          alias: metav1
+        - pkg: k8s.io/apimachinery/pkg/api/errors
+          alias: apierrors
+        - pkg: sigs.k8s.io/controller-runtime
+          alias: ctrl
+        - pkg: github.com/jairjosafath/operator/api/v1
+          alias: superv1
     revive:
       rules:
+        - name: blank-imports
         - name: comment-spacings
+        - name: context-as-argument
+        - name: context-keys-type
+        - name: dot-imports
+          arguments:
+            - allowed-packages:
+                - github.com/onsi/ginkgo/v2
+                - github.com/onsi/gomega
+        - name: error-naming
+        - name: error-return
+        - name: error-strings
+        - name: errorf
+        - name: exported
         - name: import-shadowing
+        - name: increment-decrement
+        - name: indent-error-flow
+        - name: package-comments
+        - name: range
+        - name: receiver-naming
+        - name: redefines-builtin-id
+        - name: superfluous-else
+        - name: time-naming
+        - name: unexported-return
+        - name: unreachable-code
+        - name: var-declaration
+        - name: var-naming
     modernize:
       disable:
         - omitzero
@@ -60,6 +103,10 @@ formatters:
   enable:
     - gofmt
     - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/jairjosafath/operator
   exclusions:
     generated: lax
     paths:

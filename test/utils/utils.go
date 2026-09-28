@@ -1,3 +1,4 @@
+// Package utils provides helpers for the end-to-end tests in test/e2e.
 package utils
 
 import (
@@ -8,7 +9,7 @@ import (
 	"os/exec"
 	"strings"
 
-	. "github.com/onsi/ginkgo/v2" // nolint:revive,staticcheck
+	. "github.com/onsi/ginkgo/v2" //nolint:staticcheck // The Ginkgo DSL is designed for dot imports.
 )
 
 const (
@@ -161,7 +162,7 @@ func GetProjectDir() (string, error) {
 // of the target content. The target content may span multiple lines.
 func UncommentCode(filename, target, prefix string) error {
 	// false positive
-	// nolint:gosec
+	//nolint:gosec
 	content, err := os.ReadFile(filename)
 	if err != nil {
 		return fmt.Errorf("failed to read file %q: %w", filename, err)
@@ -201,7 +202,7 @@ func UncommentCode(filename, target, prefix string) error {
 	}
 
 	// false positive
-	// nolint:gosec
+	//nolint:gosec
 	if err = os.WriteFile(filename, out.Bytes(), 0644); err != nil {
 		return fmt.Errorf("failed to write file %q: %w", filename, err)
 	}

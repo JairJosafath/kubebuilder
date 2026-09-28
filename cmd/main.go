@@ -1,3 +1,5 @@
+// Manager runs the Superpod operator. It registers the Superpod controller with a
+// controller-runtime manager and serves health probes and metrics.
 package main
 
 import (
@@ -37,7 +39,6 @@ func init() {
 	// +kubebuilder:scaffold:scheme
 }
 
-// nolint:gocyclo
 func main() {
 	var metricsAddr string
 	var metricsCertPath, metricsCertName, metricsCertKey string
