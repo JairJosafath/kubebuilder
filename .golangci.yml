@@ -8,22 +8,25 @@ linters:
     - depguard
     - dupl
     - errcheck
+    - errorlint
     - ginkgolinter
     - goconst
     - gocyclo
     - govet
+    - importas
     - ineffassign
     - lll
-    - modernize
+    - logcheck
     - misspell
+    - modernize
     - nakedret
+    - nolintlint
     - prealloc
     - revive
     - staticcheck
     - unconvert
     - unparam
     - unused
-    - logcheck
   settings:
     custom:
       logcheck:
@@ -35,10 +38,94 @@ linters:
           deny:
             - pkg: sort
               desc: Should be replaced with slices package
+        # Layering rules; see docs/architecture.md. Business rules stay plain Go.
+        business-rules:
+          files:
+            - "**/internal/emoji/**"
+            - "**/internal/webpage/**"
+          deny:
+            - pkg: k8s.io
+              desc: Business rules must not depend on Kubernetes; translate in internal/resources
+            - pkg: sigs.k8s.io
+              desc: Business rules must not depend on controller-runtime; call them from internal/controller
+            - pkg: net/http
+              desc: Business rules must not do network I/O; put provider code in an adapter such as internal/typesafe
+            - pkg: github.com/jairjosafath/operator/api
+              desc: Business rules must not depend on CRD types; internal/resources translates them
+            - pkg: github.com/jairjosafath/operator/internal/controller
+              desc: Business rules must not depend on the Kubebuilder controller
+            - pkg: github.com/jairjosafath/operator/internal/resources
+              desc: Business rules must not depend on adapters
+            - pkg: github.com/jairjosafath/operator/internal/typesafe
+              desc: Business rules must not depend on adapters; depend on the webpage.EmojiSelector port
+        provider-adapter:
+          files:
+            - "**/internal/typesafe/**"
+          deny:
+            - pkg: k8s.io
+              desc: The provider adapter must not depend on Kubernetes
+            - pkg: sigs.k8s.io
+              desc: The provider adapter must not depend on controller-runtime
+            - pkg: github.com/jairjosafath/operator/api
+              desc: The provider adapter must not depend on CRD types
+            - pkg: github.com/jairjosafath/operator/internal/controller
+              desc: Adapters must not depend on the controller
+            - pkg: github.com/jairjosafath/operator/internal/resources
+              desc: Adapters must not depend on each other
+        kubernetes-adapter:
+          files:
+            - "**/internal/resources/**"
+          deny:
+            - pkg: net/http
+              desc: The Kubernetes adapter must not call external services
+            - pkg: github.com/jairjosafath/operator/internal/controller
+              desc: Adapters must not depend on the controller
+            - pkg: github.com/jairjosafath/operator/internal/typesafe
+              desc: Adapters must not depend on each other
+    importas:
+      no-unaliased: true
+      alias:
+        - pkg: k8s.io/api/core/v1
+          alias: corev1
+        - pkg: k8s.io/api/networking/v1
+          alias: networkingv1
+        - pkg: k8s.io/apimachinery/pkg/apis/meta/v1
+          alias: metav1
+        - pkg: k8s.io/apimachinery/pkg/api/errors
+          alias: apierrors
+        - pkg: sigs.k8s.io/controller-runtime
+          alias: ctrl
+        - pkg: github.com/jairjosafath/operator/api/v1
+          alias: superv1
     revive:
       rules:
+        - name: blank-imports
         - name: comment-spacings
+        - name: context-as-argument
+        - name: context-keys-type
+        - name: dot-imports
+          arguments:
+            - allowed-packages:
+                - github.com/onsi/ginkgo/v2
+                - github.com/onsi/gomega
+        - name: error-naming
+        - name: error-return
+        - name: error-strings
+        - name: errorf
+        - name: exported
         - name: import-shadowing
+        - name: increment-decrement
+        - name: indent-error-flow
+        - name: package-comments
+        - name: range
+        - name: receiver-naming
+        - name: redefines-builtin-id
+        - name: superfluous-else
+        - name: time-naming
+        - name: unexported-return
+        - name: unreachable-code
+        - name: var-declaration
+        - name: var-naming
     modernize:
       disable:
         - omitzero
@@ -60,6 +147,10 @@ formatters:
   enable:
     - gofmt
     - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/jairjosafath/operator
   exclusions:
     generated: lax
     paths:

@@ -1,10 +1,15 @@
-// Package emoji matches super abilities to Unicode emoji through Jev.
+// Package emoji is the provider-neutral emoji vocabulary: the bundled Unicode
+// catalog, scored matches, and the rule that decides how many matches the
+// webpage shows. Providers such as internal/typesafe produce Matches; this
+// package never contacts them.
 package emoji
 
 import (
 	"crypto/sha256"
 	_ "embed"
 	"fmt"
+	"maps"
+	"math"
 	"strings"
 )
 
@@ -31,6 +36,18 @@ func parseCatalog(data string) map[string]string {
 	return entries
 }
 
+// Catalog returns every fully-qualified emoji in the bundled Unicode data,
+// mapped to its name. The caller owns the returned map.
+func Catalog() map[string]string {
+	return maps.Clone(catalog)
+}
+
+// CatalogVersion identifies the bundled catalog. Providers include it in their
+// cache keys, so updating the catalog invalidates stored selections.
+func CatalogVersion() string {
+	return fmt.Sprintf("%x", sha256.Sum256([]byte(catalogText)))
+}
+
 // Match is a scored emoji from the final comparison, not from an individual batch.
 type Match struct {
 	Emoji string  `json:"emoji"`
@@ -38,21 +55,23 @@ type Match struct {
 	Score float64 `json:"score"`
 }
 
-// ValidMatches checks persisted results before reusing them.
+// ValidScore reports whether score is a finite probability between 0 and 1.
+func ValidScore(score float64) bool {
+	return !math.IsNaN(score) && !math.IsInf(score, 0) && score >= 0 && score <= 1
+}
+
+// ValidMatches checks persisted results before reusing them. The page shows
+// one, two, or four emoji.
 func ValidMatches(matches []Match) bool {
-	if len(matches) == 0 || len(matches) > 3 {
+	if n := len(matches); n != 1 && n != 2 && n != 4 {
 		return false
 	}
 	seen := make(map[string]bool)
 	for _, m := range matches {
-		if name, ok := catalog[m.Emoji]; !ok || name != m.Name || seen[m.Emoji] || !validProbability(m.Score) {
+		if name, ok := catalog[m.Emoji]; !ok || name != m.Name || seen[m.Emoji] || !ValidScore(m.Score) {
 			return false
 		}
 		seen[m.Emoji] = true
 	}
 	return true
-}
-
-func catalogHash() string {
-	return fmt.Sprintf("%x", sha256.Sum256([]byte(catalogText)))
 }

@@ -1,4 +1,4 @@
-package emoji
+package typesafe
 
 import (
 	"bytes"
@@ -8,62 +8,72 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"math"
 	"net/http"
 	"slices"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/jairjosafath/operator/internal/emoji"
 )
 
 const (
-	endpoint = "https://www.jevai.org/api/v1/decisions"
-	// Reserve space below the service's 32 KiB request limit.
+	endpoint = "https://api.typesafe.ai/v1/systemone"
+	// TypeSafe requires a model; jev-latest tracks its current Jev release.
+	defaultModel = "jev-latest"
+	// Stay well below the model's 64k-token context window.
 	maxRequestBytes  = 30 * 1024
+	maxResponseBytes = 128 * 1024
 	maxChoiceOptions = 255
 	maxQuestions     = 8
-	closeScoreGap    = 0.05
+	// finalistsPerQuestion is how many of each question's best emoji advance
+	// to the final comparison.
+	finalistsPerQuestion = 3
+	requestTimeout       = 20 * time.Second
+	selectTimeout        = 3 * time.Minute
 )
 
-// Client calls Jev's native Decisions API. Credentials never enter the page or cache.
+// Client calls TypeSafe's Jev API. Credentials never enter the page or cache.
 type Client struct {
 	apiKey     string
 	model      string
 	httpClient *http.Client
 	endpoint   string
 	now        func() time.Time
-	mu         sync.Mutex
-	retryAt    time.Time
-	retryCode  *int
-	backoff    time.Duration
-	decisions  map[[sha256.Size]byte]cachedDecision
+
+	mu          sync.Mutex // guards the fields below
+	retryAt     time.Time
+	retryStatus int
+	backoff     time.Duration
+	decisions   map[[sha256.Size]byte]cachedDecision
 }
 
-// NewClient uses the jevai.org service. An empty model uses the service default.
+// NewClient calls TypeSafe's Jev API. An empty model uses jev-latest.
 func NewClient(apiKey, model string) *Client {
 	return &Client{
-		apiKey: strings.TrimSpace(apiKey), model: model, endpoint: endpoint, now: time.Now,
+		apiKey: strings.TrimSpace(apiKey), model: cmp.Or(strings.TrimSpace(model), defaultModel),
+		endpoint: endpoint, now: time.Now,
 		httpClient: &http.Client{
-			Timeout: 20 * time.Second,
+			Timeout: requestTimeout,
 			// Never forward a credential or POST body through a redirect.
 			CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse },
 		},
 	}
 }
 
-// CacheKey changes when the catalog, model, or selection algorithm changes.
+// CacheKey changes when the service, catalog, model, or selection algorithm changes.
 func (c *Client) CacheKey() string {
-	return "jevai.org/v2/parallel255-top3-gap0.05/" + c.model + "/" + catalogHash()
+	return "api.typesafe.ai/v3/parallel255-top3-layout124-gap0.05/" + c.model + "/" + emoji.CatalogVersion()
 }
 
 // Select compares every catalog entry in Choice questions, packing independent
-// questions into shared requests, then re-ranks each question's top three.
+// questions into shared requests, then re-ranks each question's finalists.
 // Probabilities from separate questions are not comparable.
-func (c *Client) Select(ctx context.Context, ability string) ([]Match, error) {
+func (c *Client) Select(ctx context.Context, ability string) ([]emoji.Match, error) {
 	if c.apiKey == "" {
 		return nil, errors.New("emoji matching requires JEV_API_KEY in the operator environment")
 	}
-	ctx, cancel := context.WithTimeout(ctx, 3*time.Minute)
+	ctx, cancel := context.WithTimeout(ctx, selectTimeout)
 	defer cancel()
 	questions, err := c.selectionQuestions(ability)
 	if err != nil {
@@ -80,7 +90,7 @@ func (c *Client) Select(ctx context.Context, ability string) ([]Match, error) {
 			return nil, err
 		}
 		for _, matches := range answers {
-			for _, match := range matches[:min(3, len(matches))] {
+			for _, match := range matches[:min(finalistsPerQuestion, len(matches))] {
 				finalists[match.Emoji] = match.Name
 			}
 		}
@@ -89,18 +99,7 @@ func (c *Client) Select(ctx context.Context, ability string) ([]Match, error) {
 	if err != nil {
 		return nil, err
 	}
-	return closeMatches(matches), nil
-}
-
-func closeMatches(ranked []Match) []Match {
-	if len(ranked) == 0 {
-		return nil
-	}
-	n := 1
-	for n < min(3, len(ranked)) && ranked[0].Score-ranked[n].Score <= closeScoreGap+1e-9 {
-		n++
-	}
-	return ranked[:n]
+	return emoji.Pick(matches), nil
 }
 
 type question struct {
@@ -121,7 +120,7 @@ func emojiQuestion(options map[string]string) question {
 
 func (c *Client) decisionBody(ability string, questions map[string]question) ([]byte, error) {
 	return json.Marshal(struct {
-		Model     string              `json:"model,omitempty"`
+		Model     string              `json:"model"`
 		State     map[string]string   `json:"state"`
 		Questions map[string]question `json:"questions"`
 	}{
@@ -131,7 +130,7 @@ func (c *Client) decisionBody(ability string, questions map[string]question) ([]
 	})
 }
 
-func (c *Client) evaluate(ctx context.Context, ability string, options map[string]string) ([]Match, error) {
+func (c *Client) evaluate(ctx context.Context, ability string, options map[string]string) ([]emoji.Match, error) {
 	answers, err := c.evaluateQuestions(ctx, ability, map[string]question{"emoji": emojiQuestion(options)})
 	if err != nil {
 		return nil, err
@@ -139,7 +138,7 @@ func (c *Client) evaluate(ctx context.Context, ability string, options map[strin
 	return answers["emoji"], nil
 }
 
-func (c *Client) evaluateQuestions(ctx context.Context, ability string, questions map[string]question) (map[string][]Match, error) {
+func (c *Client) evaluateQuestions(ctx context.Context, ability string, questions map[string]question) (map[string][]emoji.Match, error) {
 	body, err := c.decisionBody(ability, questions)
 	if err != nil {
 		return nil, err
@@ -174,25 +173,20 @@ func (c *Client) evaluateQuestions(ctx context.Context, ability string, question
 	if resp.StatusCode != http.StatusOK {
 		return nil, c.responseError(resp)
 	}
+	// TypeSafe responds with {model, answers, usage}; only the answers are used.
 	var result struct {
-		Code *int `json:"code"`
-		Data struct {
-			Answers map[string]struct {
-				Type          string             `json:"type"`
-				Probabilities map[string]float64 `json:"probabilities"`
-			} `json:"answers"`
-		} `json:"data"`
+		Answers map[string]struct {
+			Type          string             `json:"type"`
+			Probabilities map[string]float64 `json:"probabilities"`
+		} `json:"answers"`
 	}
-	data, err := io.ReadAll(io.LimitReader(resp.Body, 128*1024+1))
-	if err != nil || len(data) > 128*1024 || json.Unmarshal(data, &result) != nil {
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes+1))
+	if err != nil || len(data) > maxResponseBytes || json.Unmarshal(data, &result) != nil {
 		return nil, errors.New("jev returned an invalid response")
 	}
-	if result.Code == nil || *result.Code != 0 {
-		return nil, errors.New("jev returned an unsuccessful decision")
-	}
-	answers := make(map[string][]Match, len(questions))
+	answers := make(map[string][]emoji.Match, len(questions))
 	for id, q := range questions {
-		answer, ok := result.Data.Answers[id]
+		answer, ok := result.Answers[id]
 		if !ok || answer.Type != "choice" {
 			return nil, errors.New("jev response is missing an emoji choice")
 		}
@@ -206,28 +200,20 @@ func (c *Client) evaluateQuestions(ctx context.Context, ability string, question
 	return answers, nil
 }
 
-func validProbability(score float64) bool {
-	return !math.IsNaN(score) && !math.IsInf(score, 0) && score >= 0 && score <= 1
-}
-
-func rank(options map[string]string, probabilities map[string]float64) ([]Match, error) {
+func rank(options map[string]string, probabilities map[string]float64) ([]emoji.Match, error) {
 	if len(options) == 0 || len(options) != len(probabilities) {
 		return nil, errors.New("jev returned an incomplete emoji distribution")
 	}
-	matches := make([]Match, 0, len(options))
-	var total float64
+	// Scores are used as returned; they need not sum to one.
+	matches := make([]emoji.Match, 0, len(options))
 	for symbol, name := range options {
 		score, ok := probabilities[symbol]
-		if !ok || !validProbability(score) {
+		if !ok || !emoji.ValidScore(score) {
 			return nil, errors.New("jev returned invalid emoji probabilities")
 		}
-		total += score
-		matches = append(matches, Match{Emoji: symbol, Name: name, Score: score})
+		matches = append(matches, emoji.Match{Emoji: symbol, Name: name, Score: score})
 	}
-	if math.Abs(total-1) > 0.01 {
-		return nil, errors.New("jev emoji probabilities do not sum to one")
-	}
-	slices.SortFunc(matches, func(a, b Match) int {
+	slices.SortFunc(matches, func(a, b emoji.Match) int {
 		if order := cmp.Compare(b.Score, a.Score); order != 0 {
 			return order
 		}

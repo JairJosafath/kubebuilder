@@ -1,19 +1,5 @@
-/*
-Copyright 2026.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
-
+// Manager runs the Superpod operator. It registers the Superpod controller with a
+// controller-runtime manager and serves health probes and metrics.
 package main
 
 import (
@@ -37,7 +23,7 @@ import (
 
 	superv1 "github.com/jairjosafath/operator/api/v1"
 	"github.com/jairjosafath/operator/internal/controller"
-	"github.com/jairjosafath/operator/internal/emoji"
+	"github.com/jairjosafath/operator/internal/typesafe"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -53,7 +39,6 @@ func init() {
 	// +kubebuilder:scaffold:scheme
 }
 
-// nolint:gocyclo
 func main() {
 	var metricsAddr string
 	var metricsCertPath, metricsCertName, metricsCertKey string
@@ -186,7 +171,7 @@ func main() {
 	if err := (&controller.SuperpodReconciler{
 		Client:        mgr.GetClient(),
 		Scheme:        mgr.GetScheme(),
-		EmojiSelector: emoji.NewClient(os.Getenv("JEV_API_KEY"), os.Getenv("JEV_MODEL")),
+		EmojiSelector: typesafe.NewClient(os.Getenv("JEV_API_KEY"), os.Getenv("JEV_MODEL")),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "superpod")
 		os.Exit(1)

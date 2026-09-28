@@ -1,10 +1,12 @@
-package emoji
+package typesafe
 
 import (
 	"bytes"
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/jairjosafath/operator/internal/emoji"
 )
 
 func TestPackingRespectsQuestionAndByteLimits(t *testing.T) {
@@ -51,7 +53,7 @@ func TestPackingRespectsQuestionAndByteLimits(t *testing.T) {
 			}
 		}
 	}
-	if len(seen) != len(catalog) {
+	if catalog := emoji.Catalog(); len(seen) != len(catalog) {
 		t.Fatalf("catalog coverage: %d/%d", len(seen), len(catalog))
 	}
 }

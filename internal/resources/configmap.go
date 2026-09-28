@@ -1,57 +1,54 @@
-/*
-Copyright 2026.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
-
 package resources
 
 import (
+	"encoding/json"
 	"fmt"
-	"html"
-	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 
 	superv1 "github.com/jairjosafath/operator/api/v1"
+	"github.com/jairjosafath/operator/internal/webpage"
 )
 
-// NewConfigMap builds the webpage. Escape user input so an ability is displayed
-// as text, even if it contains HTML tags.
-func NewConfigMap(sp *superv1.Superpod, emojis ...string) *corev1.ConfigMap {
-	emojiHTML := ""
-	if len(emojis) > 0 {
-		emojiHTML = "\n  <p aria-label=\"Ability emoji\" style=\"font-size: 3rem\">" +
-			html.EscapeString(strings.Join(emojis, " ")) + "</p>"
-	}
-	page := fmt.Sprintf(`<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Superpod</title>
-</head>
-<body>
-  <h1>%s</h1>
-  <p>My super ability is: %s</p>%s
-</body>
-</html>
-`, html.EscapeString(sp.Name), html.EscapeString(sp.Spec.SuperAbility), emojiHTML)
+// ConfigMap keys. nginx serves pageKey; selectionKey keeps the emoji selection
+// behind the page so later reconciles can rebuild it without a provider call.
+const (
+	pageKey      = "index.html"
+	selectionKey = "emoji-cache.json"
+)
 
-	return &corev1.ConfigMap{
-		ObjectMeta: metadata(sp),
-		Data: map[string]string{
-			"index.html": page,
-		},
+// NewConfigMap builds the ConfigMap that nginx serves. When sel is non-nil, its
+// emoji are shown on the page and sel is stored for later reconciles.
+func NewConfigMap(sp *superv1.Superpod, sel *webpage.Selection) (*corev1.ConfigMap, error) {
+	content := webpage.Content{Title: sp.Name, Ability: sp.Spec.SuperAbility}
+	if sel != nil {
+		content.Emoji = sel.Symbols()
 	}
+	page, err := webpage.Render(content)
+	if err != nil {
+		return nil, err
+	}
+	cm := &corev1.ConfigMap{
+		ObjectMeta: metadata(sp),
+		Data:       map[string]string{pageKey: page},
+	}
+	if sel != nil {
+		data, err := json.Marshal(sel)
+		if err != nil {
+			return nil, fmt.Errorf("encode emoji selection: %w", err)
+		}
+		cm.Data[selectionKey] = string(data)
+	}
+	return cm, nil
+}
+
+// StoredSelection returns the emoji selection kept in cm. It returns the zero
+// Selection when cm is nil or holds no readable selection, which makes
+// webpage.ChooseEmoji select again.
+func StoredSelection(cm *corev1.ConfigMap) webpage.Selection {
+	var sel webpage.Selection
+	if cm == nil || json.Unmarshal([]byte(cm.Data[selectionKey]), &sel) != nil {
+		return webpage.Selection{}
+	}
+	return sel
 }

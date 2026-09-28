@@ -13,6 +13,8 @@ CONTAINER_TOOL ?= docker
 # Options are set to exit when a recipe line exits non-zero or a piped command fails.
 SHELL = /usr/bin/env bash -o pipefail
 .SHELLFLAGS = -ec
+# No suffix rules: every target is spelled out below (GNU convention).
+.SUFFIXES:
 
 .PHONY: all
 all: build
@@ -32,7 +34,7 @@ all: build
 
 .PHONY: help
 help: ## Display this help.
-	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target>\033[0m\n"} /^[a-zA-Z_0-9-]+:.*?##/ { printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2 } /^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) } ' $(MAKEFILE_LIST)
+	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target>\033[0m\n"} /^[a-zA-Z_0-9-]+:.*?##/ { printf "  \033[36m%-25s\033[0m %s\n", $$1, $$2 } /^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) } ' $(MAKEFILE_LIST)
 
 ##@ Development
 
@@ -51,6 +53,23 @@ fmt: ## Run go fmt against code.
 .PHONY: vet
 vet: ## Run go vet against code.
 	go vet ./...
+
+.PHONY: test-unit
+test-unit: ## Run tests that need no API server: business rules and adapters.
+	go test $$(go list ./internal/... | grep -v /internal/controller)
+
+.PHONY: verify
+verify: manifests generate ## Fail if generated files or go.mod differ from what is committed (run on a clean tree, as CI does).
+	go mod tidy
+	@changed="$$(git status --porcelain -- go.mod go.sum config/crd/bases config/rbac/role.yaml ':(glob)**/zz_generated.*.go')"; \
+	test -z "$$changed" || { \
+		echo "$$changed"; \
+		echo "Generated files are out of date. Run 'make manifests generate' and 'go mod tidy', then commit the result."; \
+		exit 1; \
+	}
+
+.PHONY: check
+check: verify lint test ## Run every check that CI runs (GNU standard target name).
 
 .PHONY: test
 test: manifests generate fmt vet setup-envtest ## Run tests.
@@ -122,6 +141,10 @@ stop-test-superpod: ## Stop the test nodes while retaining workloads; setup-test
 destroy-test-superpod: ## Delete the disposable test cluster, its kubeconfig entries, and local test state.
 	LOCALBIN="$(LOCALBIN)" KIND="$(KIND)" KUBECTL="$(KUBECTL)" bash hack/setup-superpod-cluster.sh destroy
 
+.PHONY: test-emoji
+test-emoji: ## Ask Jev for emoji in the Kind test cluster (paid API calls). Pass script options with EMOJI_ARGS.
+	LOCALBIN="$(LOCALBIN)" KUBECTL="$(KUBECTL)" bash hack/test-emoji.sh $(EMOJI_ARGS)
+
 .PHONY: test-superpod-setup
 test-superpod-setup: ## Check cluster setup decisions with mocked tools; no Docker or cluster required.
 	bash hack/setup-superpod-cluster_test.sh
@@ -134,6 +157,10 @@ clean-test-superpod: destroy-test-superpod ## Alias for destroy-test-superpod.
 .PHONY: build
 build: manifests generate fmt vet ## Build manager binary.
 	go build -o bin/manager cmd/main.go
+
+.PHONY: clean
+clean: ## Remove build and test outputs. Keeps downloaded tools in bin/ and the test cluster.
+	rm -f bin/manager cover.out Dockerfile.cross
 
 .PHONY: run
 run: manifests generate fmt vet ## Run a controller from your host.
@@ -259,12 +286,14 @@ setup-envtest: envtest ## Download the binaries required for ENVTEST in the loca
 
 .PHONY: envtest
 envtest: $(ENVTEST) ## Download setup-envtest locally if necessary.
-$(ENVTEST): $(LOCALBIN)
+$(ENVTEST): | $(LOCALBIN)
 	$(call go-install-tool,$(ENVTEST),sigs.k8s.io/controller-runtime/tools/setup-envtest,$(ENVTEST_VERSION))
 
 .PHONY: golangci-lint
 golangci-lint: $(GOLANGCI_LINT) ## Download golangci-lint locally if necessary.
-$(GOLANGCI_LINT): $(LOCALBIN)
+# Rebuild when the plugin list or this Makefile (and its version pins) changes.
+# $(LOCALBIN) is order-only: new files in bin/ must not trigger a rebuild.
+$(GOLANGCI_LINT): .custom-gcl.yml Makefile | $(LOCALBIN)
 	$(call go-install-tool,$(GOLANGCI_LINT),github.com/golangci/golangci-lint/v2/cmd/golangci-lint,$(GOLANGCI_LINT_VERSION))
 	@test -f .custom-gcl.yml && { \
 		echo "Building custom golangci-lint with plugins..." && \

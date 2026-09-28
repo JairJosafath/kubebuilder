@@ -34,6 +34,13 @@ Multi-group layout organizes APIs by group name (e.g., `batch`, `apps`). Check t
 6. Fix `path` in `PROJECT` file for each resource
 7. Update test suite CRD paths (add one more `..` to relative paths)
 
+## Project Architecture
+
+Read `docs/architecture.md` before adding code. Business rules live in
+`internal/webpage` and `internal/emoji` and must not import Kubernetes,
+controller-runtime, or HTTP packages; `make lint` enforces the layering.
+Run `make check` before finishing a change.
+
 ## Critical Rules
 
 ### Never Edit These (Auto-Generated)

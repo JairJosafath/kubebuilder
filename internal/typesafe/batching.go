@@ -1,15 +1,18 @@
-package emoji
+package typesafe
 
 import (
 	"errors"
 	"fmt"
 	"maps"
 	"slices"
+
+	"github.com/jairjosafath/operator/internal/emoji"
 )
 
 // selectionQuestions covers the catalog in deterministic, disjoint groups. Each
 // Choice stays within both the option limit and the serialized request limit.
 func (c *Client) selectionQuestions(ability string) (map[string]question, error) {
+	catalog := emoji.Catalog()
 	remaining := slices.Sorted(maps.Keys(catalog))
 	questions := make(map[string]question)
 	for len(remaining) > 0 {
@@ -48,8 +51,8 @@ func (c *Client) selectionQuestions(ability string) (map[string]question, error)
 		questions[id] = q
 		remaining = remaining[n:]
 	}
-	// Every question advances at most three choices into one final comparison.
-	if len(questions)*3 > maxChoiceOptions {
+	// Every question's finalists must fit into one final comparison.
+	if len(questions)*finalistsPerQuestion > maxChoiceOptions {
 		return nil, errors.New("jev catalog requires too many finalists")
 	}
 	return questions, nil
@@ -90,16 +93,16 @@ func (c *Client) packQuestions(ability string, questions map[string]question) ([
 
 // The request hash determines the question order and option counts, so complete
 // multi-question decisions can use the existing bounded cache of match slices.
-func flattenMatches(answers map[string][]Match) []Match {
-	var matches []Match
+func flattenMatches(answers map[string][]emoji.Match) []emoji.Match {
+	var matches []emoji.Match
 	for _, id := range slices.Sorted(maps.Keys(answers)) {
 		matches = append(matches, answers[id]...)
 	}
 	return matches
 }
 
-func splitCachedMatches(questions map[string]question, matches []Match) map[string][]Match {
-	answers := make(map[string][]Match, len(questions))
+func splitCachedMatches(questions map[string]question, matches []emoji.Match) map[string][]emoji.Match {
+	answers := make(map[string][]emoji.Match, len(questions))
 	for _, id := range slices.Sorted(maps.Keys(questions)) {
 		n := len(questions[id].Criteria)
 		answers[id] = matches[:n]

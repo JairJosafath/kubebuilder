@@ -17,11 +17,11 @@ spec:
 
 ## Configure the key
 
-Use a personal API key from [jevai.org](https://www.jevai.org/agent/keys).
+Create an API key in the [TypeSafe console](https://console.typesafe.ai/keys).
 For a local manager, enter it without putting it in shell history:
 
 ```bash
-read -rsp 'Jev API key: ' JEV_API_KEY; echo
+read -rsp 'TypeSafe API key: ' JEV_API_KEY; echo
 export JEV_API_KEY
 make install
 make run
@@ -34,10 +34,13 @@ the repository root, deploy your image and then patch the existing Secret:
 ```bash
 make deploy IMG=<your-registry>/operator:<tag>
 kubectl -n operator-system patch secret operator-jev-api --type=merge \
-  -p '{"stringData":{"JEV_API_KEY":"<your-Jev-API-key>"}}'
+  -p '{"stringData":{"JEV_API_KEY":"<your-TypeSafe-API-key>"}}'
 kubectl -n operator-system rollout restart deployment/operator-controller-manager
 kubectl -n operator-system rollout status deployment/operator-controller-manager
 ```
+
+In the Kind test cluster from the README, `bash hack/test-emoji.sh --set-key`
+prompts for the key without echoing it, stores it, and restarts the manager.
 
 Replace the key placeholder with your key. The manager starts without a key; plain Superpods
 continue working, while emoji-enabled Superpods report `EmojiSelectionFailed`
@@ -50,27 +53,19 @@ If you used the previous manually created `jev-api` Secret, patch
 
 Only the manager receives the key; nginx, Superpod specs, generated HTML, and
 cached results never contain it.
-The manager needs outbound HTTPS access to `www.jevai.org`.
+The manager needs outbound HTTPS access to `api.typesafe.ai`.
 
-## Choose the endpoint and model
+## Endpoint and model
 
-This integration uses the [JevAI Community REST API](https://www.jevai.org/docs).
-Emoji selection needs a custom `choice` question, so the correct endpoint is
-`POST https://www.jevai.org/api/v1/decisions`. Authenticate with the personal key
-from `/agent/keys` as a Bearer token. Successful responses use the
-`{code, message, data}` envelope, with `code: 0` and answers inside `data.answers`.
-The preset `/api/v1/decisions/model-route` chooses among application-supplied
-model candidates; it does not configure the Jev engine or select emoji.
+The operator calls [TypeSafe's Jev API](https://docs.typesafe.ai/api) at
+`POST https://api.typesafe.ai/v1/systemone`, sending the key as a Bearer token.
+Each request names a model, passes the ability as `state`, and asks `choice`
+questions. Responses contain `{model, answers, usage}`; each answer maps every
+option to a probability.
 
-Leave `JEV_MODEL` unset to use the community service's default. To override it,
-use an identifier supported by that service; its documentation gives
-`typesafe-ai/jev` as an example. Do not copy a model name from another provider.
-
-[TypeSafe's official API](https://docs.typesafe.ai/api) is a separate integration:
-`POST https://api.typesafe.ai/v1/systemone`, a TypeSafe console key, a required
-model such as `jev-latest`, and a direct `{model, answers, usage}` response.
-A JevAI Community key is not a TypeSafe key. Switching requires matching the
-endpoint, credentials, model, and response parser together.
+The model defaults to `jev-latest`, TypeSafe's alias for its current Jev release.
+To pin a release, set `JEV_MODEL` in the manager's environment to an identifier
+from [TypeSafe's model list](https://docs.typesafe.ai/models), such as `jev-1.13.0`.
 
 ## How selection works
 
@@ -87,8 +82,8 @@ bundled catalog requires rebuilding the operator. Device and font support varies
 newer emoji may not render everywhere. Proprietary stickers are not Unicode emoji.
 
 All entries are considered in Choice questions of up to 255 options. A request
-combines up to eight independent questions and stays below 30 KiB, leaving room
-under the community service's documented 32 KiB body limit. Combining questions
+combines up to eight independent questions and stays below 30 KiB, well inside
+the model's 64k-token context window. Combining questions
 shares the state and reduces request count, following TypeSafe's
 [parallel-question pattern](https://docs.typesafe.ai/patterns/fan-out).
 Each question's top three advance to a final comparison. This is a shortlist
@@ -97,10 +92,17 @@ are never compared directly. Every uncached ability still considers the full
 catalog before the final comparison. With the bundled catalog, `Flying` requires
 nine HTTP requests including the final comparison, down from twenty-one.
 
-The final probabilities determine display order. The winner is always shown;
-up to two more are included if each is within **0.05 (five percentage points)**
-of the winner. Exact ties use Unicode string order for stable output. Scores
-are model estimates, not a guarantee of semantic correctness.
+The final scores decide the layout. An emoji is close when it is within
+**0.05 (five percentage points)** of the winner:
+
+- A clear winner is shown alone.
+- Two close emoji are shown side by side.
+- When three or four are close, the top four are shown in a 2×2 square; with
+  three close, the fourth-highest completes the square.
+
+Scores are used as TypeSafe returns them; they are not required to add up to
+one. Exact ties use Unicode string order for stable output. Scores are model
+estimates, not a guarantee of semantic correctness.
 
 Successful results are stored in the owned ConfigMap as `emoji-cache.json`,
 alongside `index.html`. This file contains only public emoji names, scores, and
@@ -117,15 +119,14 @@ these failures, and the operator schedules another attempt after one minute.
 Individual requests have a 20-second timeout and each selection attempt has a
 three-minute deadline. Raw provider error bodies are not copied into logs or status.
 
-HTTP 429 indicates throttling somewhere in the API path. The status alone cannot
-identify whether a community limit, an upstream limit, or an account restriction
-caused it. It is independent of cluster readiness or kubeconfig. The operator
-reports `EmojiRateLimited` with the numeric API error code when available and
-the next attempt time. It does not infer an account quota from the status alone. It
-honors Jev's `Retry-After` header (seconds or an HTTP date), and prevents early
-watch events or other Superpods from making requests during that client's cooldown.
-If the header is missing or invalid, consecutive throttled requests back off from
-one minute to a maximum of fifteen minutes. A successful request resets the backoff.
+TypeSafe answers HTTP 429 when a rate limit is exceeded and HTTP 529 when the
+service is overloaded; neither depends on cluster readiness or kubeconfig. The
+operator reports `EmojiRateLimited` with the status and the next attempt time.
+It honors a `Retry-After` header (seconds or an HTTP date) when present, and
+prevents early watch events or other Superpods from making requests during that
+client's cooldown. If the header is missing or invalid, consecutive throttled
+requests back off from one minute to a maximum of fifteen minutes. A successful
+request resets the backoff.
 
 Completed batches are cached in memory for one hour (up to 128 decisions), so a
 throttled scan can resume without repeating successful requests. This also shares
@@ -133,14 +134,10 @@ results for identical abilities within the manager process. Restarting the manag
 clears the cooldown and batch cache; completed selections in ConfigMaps survive.
 Each uncached ability still needs the full catalog scan described above.
 
-The [community homepage](https://www.jevai.org/) advertises a temporary free
-playground promotion. That does not establish that REST, MCP, or upstream limits
-have been removed. [TypeSafe documents](https://docs.typesafe.ai/models) separate
-token-per-second and request-per-minute limits, as well as per-request context
-limits; these do not establish the limits applied to a community key.
-For a persistent 429, check the reported diagnostic and the limits for the
-service that issued your key. To use the plain page while investigating,
-disable emoji:
+[TypeSafe documents its limits](https://docs.typesafe.ai/models) in tokens per
+second, requests per minute, and tokens per request. For a persistent 429 or 529,
+check the reported status and your TypeSafe account. To use the plain page while
+investigating, disable emoji:
 
 ```bash
 kubectl patch superpod superpod-sample --type=merge -p '{"spec":{"emoji":false}}'

@@ -1,24 +1,10 @@
-/*
-Copyright 2026.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
-
 package controller
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
+	"fmt"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -31,6 +17,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
@@ -40,6 +27,9 @@ import (
 )
 
 const invisibilityAbility = "Invisibility"
+
+// testFinalizer holds an object in the terminating state until the test removes it.
+const testFinalizer = "example.test/hold"
 
 var _ = Describe("Superpod reconciliation", func() {
 	var sp *superv1.Superpod
@@ -60,6 +50,11 @@ var _ = Describe("Superpod reconciliation", func() {
 			Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(resources.NewPod(sp)), child)).To(Succeed())
 		}
 		return children
+	}
+	plainConfigMap := func() *corev1.ConfigMap {
+		cm, err := resources.NewConfigMap(sp, nil)
+		Expect(err).NotTo(HaveOccurred())
+		return cm
 	}
 	reconcileOnce := func() {
 		result, err := reconciler.Reconcile(ctx, request)
@@ -108,7 +103,7 @@ var _ = Describe("Superpod reconciliation", func() {
 		reconcileOnce()
 		Expect(selector.calls).To(Equal(1))
 		cm := &corev1.ConfigMap{}
-		key := client.ObjectKeyFromObject(resources.NewConfigMap(sp))
+		key := resources.ObjectKey(sp)
 		Expect(k8sClient.Get(ctx, key, cm)).To(Succeed())
 		Expect(cm.Data["index.html"]).To(ContainSubstring("🦅"))
 		version := cm.ResourceVersion
@@ -149,7 +144,7 @@ var _ = Describe("Superpod reconciliation", func() {
 		reconcileOnce()
 		Expect(selector.calls).To(Equal(3))
 		Expect(k8sClient.Get(ctx, key, cm)).To(Succeed())
-		Expect(cm.Data).To(Equal(resources.NewConfigMap(sp).Data))
+		Expect(cm.Data).To(Equal(plainConfigMap().Data))
 	})
 
 	It("reports the Jev cooldown and schedules its next attempt", func() {
@@ -179,8 +174,8 @@ var _ = Describe("Superpod reconciliation", func() {
 		Expect(k8sClient.Get(ctx, request.NamespacedName, sp)).To(Succeed())
 		Expect(meta.FindStatusCondition(sp.Status.Conditions, "Ready").Reason).To(Equal("EmojiSelectionFailed"))
 		cm := &corev1.ConfigMap{}
-		Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(resources.NewConfigMap(sp)), cm)).To(Succeed())
-		Expect(cm.Data).To(Equal(resources.NewConfigMap(sp).Data))
+		Expect(k8sClient.Get(ctx, resources.ObjectKey(sp), cm)).To(Succeed())
+		Expect(cm.Data).To(Equal(plainConfigMap().Data))
 		Expect(fetchChildren()).To(HaveLen(5))
 		selector.err = nil
 		reconcileOnce()
@@ -240,7 +235,7 @@ var _ = Describe("Superpod reconciliation", func() {
 		after := fetchChildren()
 		updated := after[1].(*corev1.ConfigMap)
 		Expect(updated.Data["index.html"]).To(ContainSubstring(invisibilityAbility))
-		Expect(updated.Labels).To(Equal(resources.NewConfigMap(sp).Labels))
+		Expect(updated.Labels).To(Equal(plainConfigMap().Labels))
 		Expect(updated.Annotations).To(HaveKeyWithValue("example.test/note", "keep"))
 		Expect(after[2].GetUID()).To(Equal(before[2].GetUID()))
 		Expect(after[2].GetResourceVersion()).To(Equal(before[2].GetResourceVersion()))
@@ -262,8 +257,29 @@ var _ = Describe("Superpod reconciliation", func() {
 		}
 	})
 
+	It("reuses an emoji selection persisted by an earlier operator version", func() {
+		selector := &testEmojiSelector{}
+		reconciler.EmojiSelector = selector
+		sp.Spec.Emoji = true
+		Expect(k8sClient.Update(ctx, sp)).To(Succeed())
+		// This literal is the stored format; the operator must keep reading it.
+		key := fmt.Sprintf("%x", sha256.Sum256([]byte(selector.CacheKey()+"\x00"+sp.Spec.SuperAbility)))
+		cm := plainConfigMap()
+		Expect(controllerutil.SetControllerReference(sp, cm, k8sClient.Scheme())).To(Succeed())
+		cm.Data["emoji-cache.json"] = `{"key":"` + key + `","matches":[{"emoji":"🦊","name":"fox","score":0.9}]}`
+		Expect(k8sClient.Create(ctx, cm)).To(Succeed())
+		reconcileOnce()
+		Expect(selector.calls).To(BeZero())
+		Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cm), cm)).To(Succeed())
+		Expect(cm.Data["index.html"]).To(ContainSubstring("🦊"))
+	})
+
 	DescribeTable("refuses to adopt a ConfigMap belonging to someone else", func(foreignOwner bool) {
-		cm := resources.NewConfigMap(sp)
+		selector := &testEmojiSelector{}
+		reconciler.EmojiSelector = selector
+		sp.Spec.Emoji = true
+		Expect(k8sClient.Update(ctx, sp)).To(Succeed())
+		cm := plainConfigMap()
 		cm.Data = map[string]string{"index.html": "unrelated"}
 		if foreignOwner {
 			other := sp.DeepCopy()
@@ -280,14 +296,15 @@ var _ = Describe("Superpod reconciliation", func() {
 		Expect(cm.Data["index.html"]).To(Equal("unrelated"))
 		Expect(k8sClient.Get(ctx, request.NamespacedName, sp)).To(Succeed())
 		Expect(meta.FindStatusCondition(sp.Status.Conditions, "Ready").Reason).To(Equal("ReconcileFailed"))
+		Expect(selector.calls).To(BeZero(), "a name collision must not spend a paid emoji selection")
 	}, Entry("unowned resource", false), Entry("another owner", true))
 
 	It("waits for a terminating child before recreating it", func() {
 		reconcileOnce()
 		cm := &corev1.ConfigMap{}
-		key := client.ObjectKeyFromObject(resources.NewConfigMap(sp))
+		key := resources.ObjectKey(sp)
 		Expect(k8sClient.Get(ctx, key, cm)).To(Succeed())
-		cm.Finalizers = []string{"example.test/hold"}
+		cm.Finalizers = []string{testFinalizer}
 		Expect(k8sClient.Update(ctx, cm)).To(Succeed())
 		Expect(k8sClient.Delete(ctx, cm)).To(Succeed())
 		result, err := reconciler.Reconcile(ctx, request)
@@ -305,8 +322,33 @@ var _ = Describe("Superpod reconciliation", func() {
 		reconcileOnce()
 	})
 
+	It("does not pay for an emoji selection while the ConfigMap is terminating", func() {
+		selector := &testEmojiSelector{}
+		reconciler.EmojiSelector = selector
+		sp.Spec.Emoji = true
+		Expect(k8sClient.Update(ctx, sp)).To(Succeed())
+		reconcileOnce()
+		Expect(selector.calls).To(Equal(1))
+		cm := &corev1.ConfigMap{}
+		Expect(k8sClient.Get(ctx, resources.ObjectKey(sp), cm)).To(Succeed())
+		cm.Finalizers = []string{testFinalizer}
+		Expect(k8sClient.Update(ctx, cm)).To(Succeed())
+		Expect(k8sClient.Delete(ctx, cm)).To(Succeed())
+		// A new ability makes the stored selection stale, so only the terminating
+		// check stands between this reconcile and a paid call it could not store.
+		Expect(k8sClient.Get(ctx, request.NamespacedName, sp)).To(Succeed())
+		sp.Spec.SuperAbility = invisibilityAbility
+		Expect(k8sClient.Update(ctx, sp)).To(Succeed())
+		result, err := reconciler.Reconcile(ctx, request)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(result.RequeueAfter).To(BeNumerically(">", 0))
+		Expect(selector.calls).To(Equal(1), "a terminating ConfigMap must not spend a paid emoji selection")
+		Expect(k8sClient.Get(ctx, request.NamespacedName, sp)).To(Succeed())
+		Expect(meta.FindStatusCondition(sp.Status.Conditions, "Ready").Reason).To(Equal("ResourceTerminating"))
+	})
+
 	It("does not recreate children for a deleting or missing Superpod", func() {
-		sp.Finalizers = []string{"example.test/hold"}
+		sp.Finalizers = []string{testFinalizer}
 		Expect(k8sClient.Update(ctx, sp)).To(Succeed())
 		Expect(k8sClient.Delete(ctx, sp)).To(Succeed())
 		reconcileOnce()
@@ -434,6 +476,32 @@ var _ = Describe("Superpod reconciliation", func() {
 		reconcileOnce()
 		Expect(k8sClient.Get(ctx, request.NamespacedName, sp)).To(Succeed())
 		Expect(sp.Status.URL).To(Equal("http://newer.example.test"))
+	})
+
+	It("reports ObservationFailed when the readiness check cannot read the Pod", func() {
+		watchClient, err := client.NewWithWatch(cfg, client.Options{Scheme: k8sClient.Scheme()})
+		Expect(err).NotTo(HaveOccurred())
+		injected := errors.New("injected Pod read failure")
+		// Ensure reads the Pod before the readiness check does; fail only the later read.
+		podReads := 0
+		reconciler.Client = interceptor.NewClient(watchClient, interceptor.Funcs{
+			Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+				if _, isPod := obj.(*corev1.Pod); isPod {
+					podReads++
+					if podReads > 1 {
+						return injected
+					}
+				}
+				return c.Get(ctx, key, obj, opts...)
+			},
+		})
+		_, err = reconciler.Reconcile(ctx, request)
+		Expect(err).To(MatchError(injected))
+		Expect(k8sClient.Get(ctx, request.NamespacedName, sp)).To(Succeed())
+		condition := meta.FindStatusCondition(sp.Status.Conditions, "Ready")
+		Expect(condition).NotTo(BeNil())
+		Expect(condition.Status).To(Equal(metav1.ConditionUnknown))
+		Expect(condition.Reason).To(Equal("ObservationFailed"))
 	})
 })
 
