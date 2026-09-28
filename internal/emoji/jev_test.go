@@ -186,3 +186,13 @@ func TestCanceledRequest(t *testing.T) {
 		t.Fatal("canceled request must fail")
 	}
 }
+
+// TestCacheKeyIsStable pins the key that persisted selections are stored under.
+// Changing it makes every Superpod with emoji pay for a new selection, so change
+// it only on purpose, together with this test.
+func TestCacheKeyIsStable(t *testing.T) {
+	want := "api.typesafe.ai/v3/parallel255-top3-layout124-gap0.05/jev-latest/" + catalogHash()
+	if got := NewClient(testAPIKey, "").CacheKey(); got != want {
+		t.Fatalf("CacheKey() = %q, want %q", got, want)
+	}
+}

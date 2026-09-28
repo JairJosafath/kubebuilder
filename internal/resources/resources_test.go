@@ -131,3 +131,39 @@ func TestLongSuperpodNameProducesValidServiceName(t *testing.T) {
 		t.Fatalf("resource name %q is invalid: %v", name, problems)
 	}
 }
+
+// TestPageMatchesGoldenHTML pins the exact page bytes. Refactors must not change
+// them: every byte change rewrites the ConfigMap of every running Superpod.
+func TestPageMatchesGoldenHTML(t *testing.T) {
+	const head = `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Superpod</title>
+</head>
+<body>
+  <h1>superpod-example</h1>
+  <p>My super ability is: &lt;b&gt;Flying&lt;/b&gt; &amp; &#34;more&#34;</p>
+`
+	for _, test := range []struct {
+		name  string
+		emoji []string
+		want  string
+	}{
+		{"plain", nil, head + "</body>\n</html>\n"},
+		{"two emoji", []string{"🦅", "🪽"}, head + `  <div aria-label="Ability emoji" style="display: inline-grid; ` +
+			`grid-template-columns: repeat(2, auto); gap: 0.5rem; font-size: 3rem"><span>🦅</span><span>🪽</span></div>
+</body>
+</html>
+`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			sp := exampleSuperpod()
+			sp.Spec.SuperAbility = `<b>Flying</b> & "more"`
+			if got := resources.NewConfigMap(sp, test.emoji...).Data["index.html"]; got != test.want {
+				t.Errorf("page changed:\n--- got\n%s\n--- want\n%s", got, test.want)
+			}
+		})
+	}
+}

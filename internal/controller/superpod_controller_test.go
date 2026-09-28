@@ -2,7 +2,9 @@ package controller
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
+	"fmt"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -247,7 +249,28 @@ var _ = Describe("Superpod reconciliation", func() {
 		}
 	})
 
+	It("reuses an emoji selection persisted by an earlier operator version", func() {
+		selector := &testEmojiSelector{}
+		reconciler.EmojiSelector = selector
+		sp.Spec.Emoji = true
+		Expect(k8sClient.Update(ctx, sp)).To(Succeed())
+		// This literal is the stored format; the operator must keep reading it.
+		key := fmt.Sprintf("%x", sha256.Sum256([]byte(selector.CacheKey()+"\x00"+sp.Spec.SuperAbility)))
+		cm := resources.NewConfigMap(sp)
+		Expect(controllerutil.SetControllerReference(sp, cm, k8sClient.Scheme())).To(Succeed())
+		cm.Data["emoji-cache.json"] = `{"key":"` + key + `","matches":[{"emoji":"🦊","name":"fox","score":0.9}]}`
+		Expect(k8sClient.Create(ctx, cm)).To(Succeed())
+		reconcileOnce()
+		Expect(selector.calls).To(BeZero())
+		Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cm), cm)).To(Succeed())
+		Expect(cm.Data["index.html"]).To(ContainSubstring("🦊"))
+	})
+
 	DescribeTable("refuses to adopt a ConfigMap belonging to someone else", func(foreignOwner bool) {
+		selector := &testEmojiSelector{}
+		reconciler.EmojiSelector = selector
+		sp.Spec.Emoji = true
+		Expect(k8sClient.Update(ctx, sp)).To(Succeed())
 		cm := resources.NewConfigMap(sp)
 		cm.Data = map[string]string{"index.html": "unrelated"}
 		if foreignOwner {
@@ -265,6 +288,7 @@ var _ = Describe("Superpod reconciliation", func() {
 		Expect(cm.Data["index.html"]).To(Equal("unrelated"))
 		Expect(k8sClient.Get(ctx, request.NamespacedName, sp)).To(Succeed())
 		Expect(meta.FindStatusCondition(sp.Status.Conditions, "Ready").Reason).To(Equal("ReconcileFailed"))
+		Expect(selector.calls).To(BeZero(), "a name collision must not spend a paid emoji selection")
 	}, Entry("unowned resource", false), Entry("another owner", true))
 
 	It("waits for a terminating child before recreating it", func() {
