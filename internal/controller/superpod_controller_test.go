@@ -1,19 +1,3 @@
-/*
-Copyright 2026.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
-
 package controller
 
 import (
@@ -31,6 +15,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
@@ -434,6 +419,32 @@ var _ = Describe("Superpod reconciliation", func() {
 		reconcileOnce()
 		Expect(k8sClient.Get(ctx, request.NamespacedName, sp)).To(Succeed())
 		Expect(sp.Status.URL).To(Equal("http://newer.example.test"))
+	})
+
+	It("reports ObservationFailed when the readiness check cannot read the Pod", func() {
+		watchClient, err := client.NewWithWatch(cfg, client.Options{Scheme: k8sClient.Scheme()})
+		Expect(err).NotTo(HaveOccurred())
+		injected := errors.New("injected Pod read failure")
+		// Ensure reads the Pod before the readiness check does; fail only the later read.
+		podReads := 0
+		reconciler.Client = interceptor.NewClient(watchClient, interceptor.Funcs{
+			Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+				if _, isPod := obj.(*corev1.Pod); isPod {
+					podReads++
+					if podReads > 1 {
+						return injected
+					}
+				}
+				return c.Get(ctx, key, obj, opts...)
+			},
+		})
+		_, err = reconciler.Reconcile(ctx, request)
+		Expect(err).To(MatchError(injected))
+		Expect(k8sClient.Get(ctx, request.NamespacedName, sp)).To(Succeed())
+		condition := meta.FindStatusCondition(sp.Status.Conditions, "Ready")
+		Expect(condition).NotTo(BeNil())
+		Expect(condition.Status).To(Equal(metav1.ConditionUnknown))
+		Expect(condition.Reason).To(Equal("ObservationFailed"))
 	})
 })
 
