@@ -107,6 +107,22 @@ func TestEmojiPageEscapesAllText(t *testing.T) {
 	}
 }
 
+func TestEmojiLayout(t *testing.T) {
+	for _, test := range []struct {
+		emojis  []string
+		columns string
+	}{
+		{[]string{"🦅"}, "repeat(1, auto)"},
+		{[]string{"🦅", "🪽"}, "repeat(2, auto)"},
+		{[]string{"🦅", "🪽", "✈️", "🚀"}, "repeat(2, auto)"},
+	} {
+		page := resources.NewConfigMap(exampleSuperpod(), test.emojis...).Data["index.html"]
+		if !strings.Contains(page, test.columns) || strings.Count(page, "<span>") != len(test.emojis) {
+			t.Fatalf("%d emoji need %s with one cell each:\n%s", len(test.emojis), test.columns, page)
+		}
+	}
+}
+
 func TestLongSuperpodNameProducesValidServiceName(t *testing.T) {
 	sp := exampleSuperpod()
 	sp.Name = strings.Repeat("long-name.", 20) + "example"

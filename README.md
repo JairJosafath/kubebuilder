@@ -3,7 +3,7 @@
 A Superpod creates an nginx Pod, an HTML ConfigMap, a ServiceAccount, a ClusterIP
 Service, and an Ingress. The webpage displays `spec.superAbility`.
 
-Optionally set `spec.emoji: true` to add up to three matching emoji using Jev.
+Optionally set `spec.emoji: true` to add one, two, or four matching emoji using TypeSafe's Jev API.
 See [Jev emoji setup](docs/emoji.md) for API key configuration and selection rules.
 
 The controller repairs missing resources and reports a URL and readiness.

@@ -15,8 +15,14 @@ import (
 func NewConfigMap(sp *superv1.Superpod, emojis ...string) *corev1.ConfigMap {
 	emojiHTML := ""
 	if len(emojis) > 0 {
-		emojiHTML = "\n  <p aria-label=\"Ability emoji\" style=\"font-size: 3rem\">" +
-			html.EscapeString(strings.Join(emojis, " ")) + "</p>"
+		// Two columns: two emoji sit side by side and four form a 2×2 square.
+		cells := make([]string, len(emojis))
+		for i, emoji := range emojis {
+			cells[i] = "<span>" + html.EscapeString(emoji) + "</span>"
+		}
+		emojiHTML = fmt.Sprintf("\n  <div aria-label=\"Ability emoji\" style=\"display: inline-grid; "+
+			"grid-template-columns: repeat(%d, auto); gap: 0.5rem; font-size: 3rem\">%s</div>",
+			min(2, len(emojis)), strings.Join(cells, ""))
 	}
 	page := fmt.Sprintf(`<!doctype html>
 <html lang="en">

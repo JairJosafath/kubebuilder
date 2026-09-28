@@ -38,9 +38,10 @@ type Match struct {
 	Score float64 `json:"score"`
 }
 
-// ValidMatches checks persisted results before reusing them.
+// ValidMatches checks persisted results before reusing them. The page shows
+// one, two, or four emoji.
 func ValidMatches(matches []Match) bool {
-	if len(matches) == 0 || len(matches) > 3 {
+	if n := len(matches); n != 1 && n != 2 && n != 4 {
 		return false
 	}
 	seen := make(map[string]bool)

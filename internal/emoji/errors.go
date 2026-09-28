@@ -1,28 +1,18 @@
 package emoji
 
 import (
-	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 )
 
-// responseError keeps the community API's numeric error code without copying
-// untrusted provider text (which can echo credentials or request contents).
+// statusOverloaded is TypeSafe's "529 Overloaded"; net/http has no name for it.
+const statusOverloaded = 529
+
+// responseError reports only the HTTP status. Provider error text is never
+// copied into status or logs because it can echo credentials or request contents.
 func (c *Client) responseError(resp *http.Response) error {
-	var envelope struct {
-		Code *int `json:"code"`
-	}
-	const maxErrorBytes = 8 * 1024
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxErrorBytes+1))
-	if err != nil || len(body) > maxErrorBytes || json.Unmarshal(body, &envelope) != nil {
-		envelope.Code = nil
-	}
-	if resp.StatusCode == http.StatusTooManyRequests {
-		return c.rateLimited(resp.Header.Get("Retry-After"), envelope.Code)
-	}
-	if envelope.Code != nil {
-		return fmt.Errorf("jev returned HTTP %d (API code %d)", resp.StatusCode, *envelope.Code)
+	if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == statusOverloaded {
+		return c.rateLimited(resp.StatusCode, resp.Header.Get("Retry-After"))
 	}
 	return fmt.Errorf("jev returned HTTP %d", resp.StatusCode)
 }

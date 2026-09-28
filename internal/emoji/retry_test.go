@@ -67,14 +67,14 @@ func TestBackoffIncreasesUntilSuccess(t *testing.T) {
 	c.now = func() time.Time { return now }
 	for _, minutes := range []int{1, 2, 4, 8, 15, 15} {
 		var limited *RateLimitError
-		if !errors.As(c.rateLimited("", nil), &limited) || limited.RetryAt.Sub(now) != time.Duration(minutes)*time.Minute {
+		if !errors.As(c.rateLimited(http.StatusTooManyRequests, ""), &limited) || limited.RetryAt.Sub(now) != time.Duration(minutes)*time.Minute {
 			t.Fatalf("expected %d minute backoff, got %v", minutes, limited)
 		}
 		now = limited.RetryAt
 	}
 	c.rememberDecision(sha256.Sum256([]byte("success")), []Match{{Emoji: "🦅", Name: eagleName, Score: 1}})
 	var limited *RateLimitError
-	if !errors.As(c.rateLimited("", nil), &limited) || limited.RetryAt.Sub(now) != time.Minute {
+	if !errors.As(c.rateLimited(http.StatusTooManyRequests, ""), &limited) || limited.RetryAt.Sub(now) != time.Minute {
 		t.Fatalf("success did not reset backoff: %v", limited)
 	}
 }
@@ -103,7 +103,7 @@ func TestSelectionResumesAfterRateLimit(t *testing.T) {
 			return
 		}
 		if err := json.NewEncoder(w).Encode(map[string]any{
-			"code": 0, "data": map[string]any{"answers": stubAnswers(req.Questions)},
+			"model": defaultModel, "answers": stubAnswers(req.Questions),
 		}); err != nil {
 			t.Error(err)
 		}

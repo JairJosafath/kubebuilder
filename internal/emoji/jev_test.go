@@ -29,8 +29,10 @@ func TestRankingAndCloseScores(t *testing.T) {
 	}{
 		{"clear winner", map[string]float64{"🦅": .8, "🪽": .1, "✈️": .06, "🚀": .04}, 1},
 		{"two close", map[string]float64{"🦅": .4, "🪽": .35, "✈️": .2, "🚀": .05}, 2},
-		{"four tied capped at three", map[string]float64{"🦅": .25, "🪽": .25, "✈️": .25, "🚀": .25}, 3},
+		{"four close", map[string]float64{"🦅": .26, "🪽": .25, "✈️": .25, "🚀": .24}, 4},
+		{"three close fill the square", map[string]float64{"🦅": .3, "🪽": .28, "✈️": .27, "🚀": .15}, 4},
 		{"compare to winner not neighbor", map[string]float64{"🦅": .36, "🪽": .32, "✈️": .28, "🚀": .04}, 2},
+		{"scores need not sum to one", map[string]float64{"🦅": .5, "🪽": .1, "✈️": .05, "🚀": 0}, 1},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			ranked, err := rank(options, test.scores)
@@ -55,7 +57,7 @@ func TestRejectInvalidDistribution(t *testing.T) {
 	options := map[string]string{"🦅": eagleName, "🪽": "wing"}
 	for _, scores := range []map[string]float64{
 		nil, {"🦅": 1}, {"🦅": .5, "unknown": .5}, {"🦅": -.1, "🪽": 1.1},
-		{"🦅": 0, "🪽": 0}, {"🦅": math.NaN(), "🪽": .5}, {"🦅": math.Inf(1), "🪽": .5},
+		{"🦅": math.NaN(), "🪽": .5}, {"🦅": math.Inf(1), "🪽": .5},
 	} {
 		if _, err := rank(options, scores); err == nil {
 			t.Fatalf("accepted invalid distribution: %v", scores)
@@ -77,17 +79,18 @@ func TestSelectUsesEntireCatalogAndReranksFinalists(t *testing.T) {
 			t.Error("incorrect Jev request headers")
 		}
 		body, err := io.ReadAll(r.Body)
-		if err != nil || len(body) > 32*1024 {
+		if err != nil || len(body) > maxRequestBytes {
 			t.Error("invalid request size")
 		}
 		var req struct {
+			Model     string              `json:"model"`
 			State     map[string]string   `json:"state"`
 			Questions map[string]question `json:"questions"`
 		}
 		if err := json.Unmarshal(body, &req); err != nil {
 			t.Error(err)
 		}
-		if len(req.Questions) > maxQuestions || req.State["super_ability"] != flyingAbility {
+		if len(req.Questions) > maxQuestions || req.State["super_ability"] != flyingAbility || req.Model != defaultModel {
 			t.Error("incorrect Jev request")
 		}
 		multiQuestion = multiQuestion || len(req.Questions) > 1
@@ -100,7 +103,8 @@ func TestSelectUsesEntireCatalogAndReranksFinalists(t *testing.T) {
 			}
 		}
 		if err := json.NewEncoder(w).Encode(map[string]any{
-			"code": 0, "data": map[string]any{"answers": stubAnswers(req.Questions)},
+			"model": defaultModel, "answers": stubAnswers(req.Questions),
+			"usage": map[string]int{"input_tokens": 1, "output_tokens": 0},
 		}); err != nil {
 			t.Error(err)
 		}
@@ -141,10 +145,10 @@ func TestJevErrorsAreSafe(t *testing.T) {
 		code int
 		body string
 	}{
-		{"unauthorized", 401, testAPIKey}, {"rate limit", 429, testAPIKey},
-		{"malformed", 200, testAPIKey}, {"service error", 200, `{"code":1,"message":"test-key"}`},
-		{"missing envelope", 200, `{"data":{"answers":{}}}`},
-		{"missing answer", 200, `{"code":0,"data":{"answers":{}}}`},
+		{"unauthorized", 401, testAPIKey}, {"rate limit", 429, testAPIKey}, {"overloaded", 529, testAPIKey},
+		{"malformed", 200, testAPIKey},
+		{"missing answers", 200, `{"model":"jev-latest","usage":{"input_tokens":1,"output_tokens":0}}`},
+		{"missing answer", 200, `{"answers":{}}`},
 		{"oversized", 200, strings.Repeat("x", 128*1024+1)},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -163,6 +167,15 @@ func TestJevErrorsAreSafe(t *testing.T) {
 	}
 	if _, err := NewClient("", "").Select(context.Background(), flyingAbility); err == nil {
 		t.Fatal("missing credentials must fail without an API call")
+	}
+}
+
+func TestModelDefaultsToJevLatest(t *testing.T) {
+	if c := NewClient(testAPIKey, " "); c.model != defaultModel {
+		t.Fatalf("default model = %q, want %q", c.model, defaultModel)
+	}
+	if NewClient(testAPIKey, "jev-1.13.0").CacheKey() == NewClient(testAPIKey, "").CacheKey() {
+		t.Fatal("changing the model must invalidate cached selections")
 	}
 }
 

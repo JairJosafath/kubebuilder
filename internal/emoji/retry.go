@@ -1,6 +1,7 @@
 package emoji
 
 import (
+	"cmp"
 	"crypto/sha256"
 	"fmt"
 	"net/http"
@@ -16,19 +17,21 @@ const (
 	maxBackoff         = 15 * time.Minute
 )
 
-// RateLimitError reports when this client's next Jev request may be attempted.
-// It deliberately excludes the provider response body and credentials.
+// RateLimitError reports when this client's next Jev request may be attempted
+// after TypeSafe throttled (429) or was overloaded (529). It deliberately
+// excludes the provider response body and credentials.
 type RateLimitError struct {
 	RetryAt time.Time
-	APICode *int
+	// Status is the HTTP status that started the cooldown; zero means 429.
+	Status int
 }
 
 func (e *RateLimitError) Error() string {
-	detail := ""
-	if e.APICode != nil {
-		detail = fmt.Sprintf(" (API code %d)", *e.APICode)
+	status, cause := cmp.Or(e.Status, http.StatusTooManyRequests), "rate limit exceeded"
+	if status == statusOverloaded {
+		cause = "service overloaded"
 	}
-	return fmt.Sprintf("Jev returned HTTP 429%s; limit source unspecified; next attempt after %s", detail,
+	return fmt.Sprintf("Jev returned HTTP %d (%s); next attempt after %s", status, cause,
 		e.RetryAt.UTC().Format(time.RFC3339))
 }
 
@@ -52,7 +55,7 @@ func (c *Client) lookupDecision(key [sha256.Size]byte) ([]Match, error) {
 	// Apply the cooldown across abilities and Superpods sharing this client.
 	// Kubernetes watch events cannot bypass it by reconciling early.
 	if now.Before(c.retryAt) {
-		return nil, &RateLimitError{RetryAt: c.retryAt, APICode: c.retryCode}
+		return nil, &RateLimitError{RetryAt: c.retryAt, Status: c.retryStatus}
 	}
 	return nil, nil
 }
@@ -77,7 +80,7 @@ func (c *Client) rememberDecision(key [sha256.Size]byte, matches []Match) {
 	c.backoff = 0
 }
 
-func (c *Client) rateLimited(retryAfter string, apiCode *int) error {
+func (c *Client) rateLimited(status int, retryAfter string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.backoff = min(max(time.Minute, c.backoff*2), maxBackoff)
@@ -86,8 +89,8 @@ func (c *Client) rateLimited(retryAfter string, apiCode *int) error {
 	if deadline.After(c.retryAt) {
 		c.retryAt = deadline
 	}
-	c.retryCode = apiCode
-	return &RateLimitError{RetryAt: c.retryAt, APICode: c.retryCode}
+	c.retryStatus = status
+	return &RateLimitError{RetryAt: c.retryAt, Status: c.retryStatus}
 }
 
 func retryDeadline(header string, now time.Time, fallback time.Duration) time.Time {
