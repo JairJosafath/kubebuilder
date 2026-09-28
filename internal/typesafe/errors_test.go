@@ -1,4 +1,4 @@
-package emoji
+package typesafe
 
 import (
 	"errors"
@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/jairjosafath/operator/internal/emoji"
 )
 
 func TestThrottlingAndOverloadStartCooldown(t *testing.T) {
@@ -27,8 +29,9 @@ func TestThrottlingAndOverloadStartCooldown(t *testing.T) {
 				Header:     http.Header{"Retry-After": []string{"120"}},
 				Body:       io.NopCloser(strings.NewReader(`{"error":"test-key"}`)),
 			})
-			var limited *RateLimitError
-			if !errors.As(err, &limited) || !limited.RetryAt.Equal(now.Add(2*time.Minute)) || limited.Status != test.status {
+			var limited *emoji.RateLimitError
+			if !errors.As(err, &limited) || !limited.RetryAt.Equal(now.Add(2*time.Minute)) ||
+				!strings.Contains(limited.Cause, fmt.Sprintf("HTTP %d", test.status)) {
 				t.Fatalf("expected a cooldown until Retry-After: %v", err)
 			}
 			if !strings.Contains(err.Error(), test.cause) || strings.Contains(err.Error(), testAPIKey) {

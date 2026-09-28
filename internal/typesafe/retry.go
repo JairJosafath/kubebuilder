@@ -1,7 +1,6 @@
-package emoji
+package typesafe
 
 import (
-	"cmp"
 	"crypto/sha256"
 	"fmt"
 	"net/http"
@@ -9,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/jairjosafath/operator/internal/emoji"
 )
 
 const (
@@ -17,32 +18,14 @@ const (
 	maxBackoff         = 15 * time.Minute
 )
 
-// RateLimitError reports when this client's next Jev request may be attempted
-// after TypeSafe throttled (429) or was overloaded (529). It deliberately
-// excludes the provider response body and credentials.
-type RateLimitError struct {
-	RetryAt time.Time
-	// Status is the HTTP status that started the cooldown; zero means 429.
-	Status int
-}
-
-func (e *RateLimitError) Error() string {
-	status, cause := cmp.Or(e.Status, http.StatusTooManyRequests), "rate limit exceeded"
-	if status == statusOverloaded {
-		cause = "service overloaded"
-	}
-	return fmt.Sprintf("Jev returned HTTP %d (%s); next attempt after %s", status, cause,
-		e.RetryAt.UTC().Format(time.RFC3339))
-}
-
 type cachedDecision struct {
-	matches []Match
+	matches []emoji.Match
 	expires time.Time
 }
 
 // Successful batches survive retries in this process, so a throttled scan can
 // resume without paying for completed batches again. The cache is bounded.
-func (c *Client) lookupDecision(key [sha256.Size]byte) ([]Match, error) {
+func (c *Client) lookupDecision(key [sha256.Size]byte) ([]emoji.Match, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	now := c.now()
@@ -55,12 +38,12 @@ func (c *Client) lookupDecision(key [sha256.Size]byte) ([]Match, error) {
 	// Apply the cooldown across abilities and Superpods sharing this client.
 	// Kubernetes watch events cannot bypass it by reconciling early.
 	if now.Before(c.retryAt) {
-		return nil, &RateLimitError{RetryAt: c.retryAt, Status: c.retryStatus}
+		return nil, &emoji.RateLimitError{RetryAt: c.retryAt, Cause: rateLimitCause(c.retryStatus)}
 	}
 	return nil, nil
 }
 
-func (c *Client) rememberDecision(key [sha256.Size]byte, matches []Match) {
+func (c *Client) rememberDecision(key [sha256.Size]byte, matches []emoji.Match) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.decisions == nil {
@@ -90,7 +73,17 @@ func (c *Client) rateLimited(status int, retryAfter string) error {
 		c.retryAt = deadline
 	}
 	c.retryStatus = status
-	return &RateLimitError{RetryAt: c.retryAt, Status: c.retryStatus}
+	return &emoji.RateLimitError{RetryAt: c.retryAt, Cause: rateLimitCause(c.retryStatus)}
+}
+
+// rateLimitCause describes a throttled (429) or overloaded (529) response. It
+// deliberately excludes the provider response body and credentials.
+func rateLimitCause(status int) string {
+	cause := "rate limit exceeded"
+	if status == statusOverloaded {
+		cause = "service overloaded"
+	}
+	return fmt.Sprintf("Jev returned HTTP %d (%s)", status, cause)
 }
 
 func retryDeadline(header string, now time.Time, fallback time.Duration) time.Time {

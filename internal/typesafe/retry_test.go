@@ -1,4 +1,4 @@
-package emoji
+package typesafe
 
 import (
 	"context"
@@ -11,6 +11,8 @@ import (
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	"github.com/jairjosafath/operator/internal/emoji"
 )
 
 func TestRetryDeadline(t *testing.T) {
@@ -46,7 +48,7 @@ func TestCooldownPreventsRequestsAcrossAbilities(t *testing.T) {
 	c.endpoint, c.now = server.URL, func() time.Time { return now }
 	for _, ability := range []string{flyingAbility, flyingAbility, "Invisibility"} {
 		_, err := c.Select(context.Background(), ability)
-		var limited *RateLimitError
+		var limited *emoji.RateLimitError
 		if !errors.As(err, &limited) || !limited.RetryAt.Equal(now.Add(2*time.Minute)) {
 			t.Fatalf("expected shared cooldown, got %v", err)
 		}
@@ -66,14 +68,14 @@ func TestBackoffIncreasesUntilSuccess(t *testing.T) {
 	c := NewClient(testAPIKey, "")
 	c.now = func() time.Time { return now }
 	for _, minutes := range []int{1, 2, 4, 8, 15, 15} {
-		var limited *RateLimitError
+		var limited *emoji.RateLimitError
 		if !errors.As(c.rateLimited(http.StatusTooManyRequests, ""), &limited) || limited.RetryAt.Sub(now) != time.Duration(minutes)*time.Minute {
 			t.Fatalf("expected %d minute backoff, got %v", minutes, limited)
 		}
 		now = limited.RetryAt
 	}
-	c.rememberDecision(sha256.Sum256([]byte("success")), []Match{{Emoji: "🦅", Name: eagleName, Score: 1}})
-	var limited *RateLimitError
+	c.rememberDecision(sha256.Sum256([]byte("success")), []emoji.Match{{Emoji: "🦅", Name: eagleName, Score: 1}})
+	var limited *emoji.RateLimitError
 	if !errors.As(c.rateLimited(http.StatusTooManyRequests, ""), &limited) || limited.RetryAt.Sub(now) != time.Minute {
 		t.Fatalf("success did not reset backoff: %v", limited)
 	}
@@ -141,7 +143,7 @@ func TestDecisionCacheIsBoundedAndExpires(t *testing.T) {
 	now := time.Now()
 	c := NewClient(testAPIKey, "")
 	c.now = func() time.Time { return now }
-	match := []Match{{Emoji: "🦅", Name: eagleName, Score: 1}}
+	match := []emoji.Match{{Emoji: "🦅", Name: eagleName, Score: 1}}
 	for i := range maxCachedDecisions + 1 {
 		c.rememberDecision(sha256.Sum256(fmt.Appendf(nil, "ability-%d", i)), match)
 		now = now.Add(time.Second)

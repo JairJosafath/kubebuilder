@@ -1,4 +1,4 @@
-package emoji
+package typesafe
 
 import (
 	"context"
@@ -11,6 +11,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/jairjosafath/operator/internal/emoji"
 )
 
 const (
@@ -20,36 +22,24 @@ const (
 	testChoiceType = "choice"
 )
 
-func TestRankingAndCloseScores(t *testing.T) {
+func TestRankOrdersByScoreWithDeterministicTies(t *testing.T) {
 	options := map[string]string{"🦅": eagleName, "🪽": "wing", "✈️": "airplane", "🚀": "rocket"}
-	for _, test := range []struct {
-		name   string
-		scores map[string]float64
-		want   int
-	}{
-		{"clear winner", map[string]float64{"🦅": .8, "🪽": .1, "✈️": .06, "🚀": .04}, 1},
-		{"two close", map[string]float64{"🦅": .4, "🪽": .35, "✈️": .2, "🚀": .05}, 2},
-		{"four close", map[string]float64{"🦅": .26, "🪽": .25, "✈️": .25, "🚀": .24}, 4},
-		{"three close fill the square", map[string]float64{"🦅": .3, "🪽": .28, "✈️": .27, "🚀": .15}, 4},
-		{"compare to winner not neighbor", map[string]float64{"🦅": .36, "🪽": .32, "✈️": .28, "🚀": .04}, 2},
-		{"scores need not sum to one", map[string]float64{"🦅": .5, "🪽": .1, "✈️": .05, "🚀": 0}, 1},
+	for _, scores := range []map[string]float64{
+		{"🦅": .8, "🪽": .1, "✈️": .06, "🚀": .04},
+		{"🦅": .25, "🪽": .25, "✈️": .25, "🚀": .25},
+		// Scores are used as returned; they need not sum to one.
+		{"🦅": .5, "🪽": .1, "✈️": .05, "🚀": 0},
 	} {
-		t.Run(test.name, func(t *testing.T) {
-			ranked, err := rank(options, test.scores)
-			if err != nil {
-				t.Fatal(err)
+		ranked, err := rank(options, scores)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for i := 1; i < len(ranked); i++ {
+			if ranked[i].Score > ranked[i-1].Score ||
+				(ranked[i].Score == ranked[i-1].Score && ranked[i].Emoji < ranked[i-1].Emoji) {
+				t.Fatalf("ranking must be descending with deterministic ties: %+v", ranked)
 			}
-			selected := closeMatches(ranked)
-			if len(selected) != test.want || !ValidMatches(selected) {
-				t.Fatalf("unexpected matches: %+v", selected)
-			}
-			for i := 1; i < len(ranked); i++ {
-				if ranked[i].Score > ranked[i-1].Score ||
-					(ranked[i].Score == ranked[i-1].Score && ranked[i].Emoji < ranked[i-1].Emoji) {
-					t.Fatal("ranking must be descending with deterministic ties")
-				}
-			}
-		})
+		}
 	}
 }
 
@@ -66,9 +56,7 @@ func TestRejectInvalidDistribution(t *testing.T) {
 }
 
 func TestSelectUsesEntireCatalogAndReranksFinalists(t *testing.T) {
-	if len(catalog) < 3900 || catalog["🦅"] != eagleName || catalog["👩🏽‍🚀"] == "" || catalog["🇲🇽"] == "" {
-		t.Fatal("catalog must include Unicode sequences, modifiers, and flags")
-	}
+	catalog := emoji.Catalog()
 	seen := make(map[string]bool)
 	calls := 0
 	multiQuestion := false
@@ -191,7 +179,7 @@ func TestCanceledRequest(t *testing.T) {
 // Changing it makes every Superpod with emoji pay for a new selection, so change
 // it only on purpose, together with this test.
 func TestCacheKeyIsStable(t *testing.T) {
-	want := "api.typesafe.ai/v3/parallel255-top3-layout124-gap0.05/jev-latest/" + catalogHash()
+	want := "api.typesafe.ai/v3/parallel255-top3-layout124-gap0.05/jev-latest/" + emoji.CatalogVersion()
 	if got := NewClient(testAPIKey, "").CacheKey(); got != want {
 		t.Fatalf("CacheKey() = %q, want %q", got, want)
 	}
