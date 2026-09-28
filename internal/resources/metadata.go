@@ -5,11 +5,17 @@ package resources
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 
 	superv1 "github.com/jairjosafath/operator/api/v1"
 )
 
-// Different resource kinds may share a name. The UID keeps this name stable
+// ObjectKey returns the namespace and name that all of sp's children share.
+func ObjectKey(sp *superv1.Superpod) types.NamespacedName {
+	return types.NamespacedName{Namespace: sp.Namespace, Name: resourceName(sp)}
+}
+
+// resourceName is shared by children of different kinds. The UID keeps it stable
 // across reconciliations and short enough for a Service's 63-character limit.
 func resourceName(sp *superv1.Superpod) string {
 	return "superpod-" + string(sp.UID)

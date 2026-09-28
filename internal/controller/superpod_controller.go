@@ -15,13 +15,14 @@ import (
 	superv1 "github.com/jairjosafath/operator/api/v1"
 	"github.com/jairjosafath/operator/internal/emoji"
 	"github.com/jairjosafath/operator/internal/resources"
+	"github.com/jairjosafath/operator/internal/webpage"
 )
 
 // SuperpodReconciler reconciles a Superpod object.
 type SuperpodReconciler struct {
 	client.Client
 	Scheme        *runtime.Scheme
-	EmojiSelector EmojiSelector
+	EmojiSelector webpage.EmojiSelector
 }
 
 // +kubebuilder:rbac:groups=super.elp-max.com,resources=superpods,verbs=get;list;watch
@@ -44,8 +45,14 @@ func (r *SuperpodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, nil
 	}
 
+	// A failed emoji selection must not take the webpage down: the plain page
+	// is applied first and the failure is reported afterwards.
+	sel, emojiErr := r.chooseEmoji(ctx, sp)
+	page, err := resources.NewConfigMap(sp, sel)
+	if err != nil {
+		return r.fail(ctx, sp, err)
+	}
 	pod := resources.NewPod(sp)
-	page, emojiErr := r.emojiPage(ctx, sp)
 	children := []client.Object{
 		resources.NewServiceAccount(sp),
 		page,
@@ -56,10 +63,7 @@ func (r *SuperpodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	for _, child := range children {
 		terminating, err := resources.Ensure(ctx, r.Client, r.Scheme, sp, child)
 		if err != nil {
-			statusErr := r.updateStatus(ctx, sp, sp.Status.PodName, metav1.Condition{
-				Status: metav1.ConditionFalse, Reason: superv1.ReconcileFailedReason, Message: err.Error(),
-			})
-			return ctrl.Result{}, errors.Join(err, statusErr)
+			return r.fail(ctx, sp, err)
 		}
 		if terminating {
 			// A name cannot be reused until deletion finishes. Watches normally
@@ -72,7 +76,6 @@ func (r *SuperpodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	if emojiErr != nil {
-		// The plain ability page remains available while Jev is unavailable.
 		delay, reason := time.Minute, superv1.EmojiSelectionFailedReason
 		if rateLimit, ok := errors.AsType[*emoji.RateLimitError](emojiErr); ok {
 			delay, reason = max(time.Second, time.Until(rateLimit.RetryAt)), superv1.EmojiRateLimitedReason
@@ -92,6 +95,15 @@ func (r *SuperpodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	return ctrl.Result{}, r.updateStatus(ctx, sp, pod.Name, condition)
 }
 
+// fail reports err in the Ready condition and returns it, so controller-runtime
+// retries the request with backoff.
+func (r *SuperpodReconciler) fail(ctx context.Context, sp *superv1.Superpod, err error) (ctrl.Result, error) {
+	statusErr := r.updateStatus(ctx, sp, sp.Status.PodName, metav1.Condition{
+		Status: metav1.ConditionFalse, Reason: superv1.ReconcileFailedReason, Message: err.Error(),
+	})
+	return ctrl.Result{}, errors.Join(err, statusErr)
+}
+
 // SetupWithManager watches the Superpod and every kind of child it owns.
 func (r *SuperpodReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
@@ -103,4 +115,14 @@ func (r *SuperpodReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&networkingv1.Ingress{}).
 		Named("superpod").
 		Complete(r)
+}
+
+// getIfExists reads obj by key. It returns nil, without an error, when the
+// object does not exist.
+func getIfExists[T client.Object](ctx context.Context, c client.Reader, key client.ObjectKey, obj T) (T, error) {
+	if err := c.Get(ctx, key, obj); err != nil {
+		var none T
+		return none, client.IgnoreNotFound(err)
+	}
+	return obj, nil
 }
