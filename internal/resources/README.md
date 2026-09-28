@@ -61,6 +61,7 @@ Run the helper tests without a cluster using `make test-unit`.
 Run `make test` for reconciliation tests against an isolated envtest API server.
 Envtest has no kubelet or garbage collector: it validates API behavior, ownership,
 and watches, but cannot prove that nginx serves traffic or that GC removes children.
+The [Kind cluster test](../../test/superpod/README.md) checks both.
 
 References: [official nginx image](https://hub.docker.com/_/nginx) and
 [ConfigMap volume updates](https://kubernetes.io/docs/concepts/configuration/configmap/#mounted-configmaps-are-updated-automatically).

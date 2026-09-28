@@ -39,7 +39,7 @@ kubectl -n operator-system rollout restart deployment/operator-controller-manage
 kubectl -n operator-system rollout status deployment/operator-controller-manager
 ```
 
-In the Kind test cluster from the README, `bash hack/test-emoji.sh --set-key`
+In the [Kind test cluster](../test/superpod/README.md), `bash hack/test-emoji.sh --set-key`
 prompts for the key without echoing it, stores it, and restarts the manager.
 
 Replace the key placeholder with your key. The manager starts without a key; plain Superpods
