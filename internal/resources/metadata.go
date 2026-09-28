@@ -1,6 +1,3 @@
-// Package resources builds the desired Kubernetes objects for a Superpod.
-// Builders do not contact the API server. Pass a Superpod fetched from Kubernetes,
-// so its namespace and server-assigned UID are available.
 package resources
 
 import (
