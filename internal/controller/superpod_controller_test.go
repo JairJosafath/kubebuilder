@@ -28,6 +28,9 @@ import (
 
 const invisibilityAbility = "Invisibility"
 
+// testFinalizer holds an object in the terminating state until the test removes it.
+const testFinalizer = "example.test/hold"
+
 var _ = Describe("Superpod reconciliation", func() {
 	var sp *superv1.Superpod
 	var reconciler *SuperpodReconciler
@@ -301,7 +304,7 @@ var _ = Describe("Superpod reconciliation", func() {
 		cm := &corev1.ConfigMap{}
 		key := resources.ObjectKey(sp)
 		Expect(k8sClient.Get(ctx, key, cm)).To(Succeed())
-		cm.Finalizers = []string{"example.test/hold"}
+		cm.Finalizers = []string{testFinalizer}
 		Expect(k8sClient.Update(ctx, cm)).To(Succeed())
 		Expect(k8sClient.Delete(ctx, cm)).To(Succeed())
 		result, err := reconciler.Reconcile(ctx, request)
@@ -319,8 +322,33 @@ var _ = Describe("Superpod reconciliation", func() {
 		reconcileOnce()
 	})
 
+	It("does not pay for an emoji selection while the ConfigMap is terminating", func() {
+		selector := &testEmojiSelector{}
+		reconciler.EmojiSelector = selector
+		sp.Spec.Emoji = true
+		Expect(k8sClient.Update(ctx, sp)).To(Succeed())
+		reconcileOnce()
+		Expect(selector.calls).To(Equal(1))
+		cm := &corev1.ConfigMap{}
+		Expect(k8sClient.Get(ctx, resources.ObjectKey(sp), cm)).To(Succeed())
+		cm.Finalizers = []string{testFinalizer}
+		Expect(k8sClient.Update(ctx, cm)).To(Succeed())
+		Expect(k8sClient.Delete(ctx, cm)).To(Succeed())
+		// A new ability makes the stored selection stale, so only the terminating
+		// check stands between this reconcile and a paid call it could not store.
+		Expect(k8sClient.Get(ctx, request.NamespacedName, sp)).To(Succeed())
+		sp.Spec.SuperAbility = invisibilityAbility
+		Expect(k8sClient.Update(ctx, sp)).To(Succeed())
+		result, err := reconciler.Reconcile(ctx, request)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(result.RequeueAfter).To(BeNumerically(">", 0))
+		Expect(selector.calls).To(Equal(1), "a terminating ConfigMap must not spend a paid emoji selection")
+		Expect(k8sClient.Get(ctx, request.NamespacedName, sp)).To(Succeed())
+		Expect(meta.FindStatusCondition(sp.Status.Conditions, "Ready").Reason).To(Equal("ResourceTerminating"))
+	})
+
 	It("does not recreate children for a deleting or missing Superpod", func() {
-		sp.Finalizers = []string{"example.test/hold"}
+		sp.Finalizers = []string{testFinalizer}
 		Expect(k8sClient.Update(ctx, sp)).To(Succeed())
 		Expect(k8sClient.Delete(ctx, sp)).To(Succeed())
 		reconcileOnce()

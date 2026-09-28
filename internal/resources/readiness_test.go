@@ -12,6 +12,14 @@ import (
 )
 
 func TestReadiness(t *testing.T) {
+	// Reasons are API that users match on. Spell them out here, independent of
+	// the superv1 constants, so changing a constant's value fails this test.
+	const (
+		readyType      = "Ready"
+		resourcesReady = "ResourcesReady"
+		podNotReady    = "PodNotReady"
+		ingressPending = "IngressPending"
+	)
 	sp := exampleSuperpod()
 	owner := []metav1.OwnerReference{*metav1.NewControllerRef(sp, superv1.GroupVersion.WithKind("Superpod"))}
 	deleting := metav1.Now()
@@ -41,33 +49,35 @@ func TestReadiness(t *testing.T) {
 		reason  string
 	}{
 		{"ready with IP", pod(func(*corev1.Pod) {}), ingress(func(*networkingv1.Ingress) {}),
-			metav1.ConditionTrue, superv1.ResourcesReadyReason},
+			metav1.ConditionTrue, resourcesReady},
 		{"ready with hostname", pod(func(*corev1.Pod) {}), ingress(func(i *networkingv1.Ingress) {
 			i.Status.LoadBalancer.Ingress = []networkingv1.IngressLoadBalancerIngress{{Hostname: "ingress.example.test"}}
-		}), metav1.ConditionTrue, superv1.ResourcesReadyReason},
+		}), metav1.ConditionTrue, resourcesReady},
 		{"Pod missing", nil, ingress(func(*networkingv1.Ingress) {}),
-			metav1.ConditionFalse, superv1.PodNotReadyReason},
+			metav1.ConditionFalse, podNotReady},
 		{"Pod owned by someone else", pod(func(p *corev1.Pod) { p.OwnerReferences = nil }), ingress(func(*networkingv1.Ingress) {}),
-			metav1.ConditionFalse, superv1.PodNotReadyReason},
+			metav1.ConditionFalse, podNotReady},
 		{"Pod deleting", pod(func(p *corev1.Pod) { p.DeletionTimestamp = &deleting }), ingress(func(*networkingv1.Ingress) {}),
-			metav1.ConditionFalse, superv1.PodNotReadyReason},
+			metav1.ConditionFalse, podNotReady},
 		{"Pod pending", pod(func(p *corev1.Pod) { p.Status.Phase = corev1.PodPending }), ingress(func(*networkingv1.Ingress) {}),
-			metav1.ConditionFalse, superv1.PodNotReadyReason},
+			metav1.ConditionFalse, podNotReady},
 		{"Pod failing its probe", pod(func(p *corev1.Pod) { p.Status.Conditions[0].Status = corev1.ConditionFalse }),
-			ingress(func(*networkingv1.Ingress) {}), metav1.ConditionFalse, superv1.PodNotReadyReason},
+			ingress(func(*networkingv1.Ingress) {}), metav1.ConditionFalse, podNotReady},
 		{"Ingress missing", pod(func(*corev1.Pod) {}), nil,
-			metav1.ConditionFalse, superv1.IngressPendingReason},
+			metav1.ConditionFalse, ingressPending},
 		{"Ingress owned by someone else", pod(func(*corev1.Pod) {}), ingress(func(i *networkingv1.Ingress) { i.OwnerReferences = nil }),
-			metav1.ConditionFalse, superv1.IngressPendingReason},
+			metav1.ConditionFalse, ingressPending},
+		{"Ingress deleting", pod(func(*corev1.Pod) {}), ingress(func(i *networkingv1.Ingress) { i.DeletionTimestamp = &deleting }),
+			metav1.ConditionFalse, ingressPending},
 		{"Ingress without address", pod(func(*corev1.Pod) {}), ingress(func(i *networkingv1.Ingress) {
 			i.Status.LoadBalancer.Ingress = []networkingv1.IngressLoadBalancerIngress{{}}
-		}), metav1.ConditionFalse, superv1.IngressPendingReason},
+		}), metav1.ConditionFalse, ingressPending},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			got := resources.Readiness(sp, test.pod, test.ingress)
-			if got.Type != superv1.ReadyCondition || got.Status != test.status || got.Reason != test.reason || got.Message == "" {
+			if got.Type != readyType || got.Status != test.status || got.Reason != test.reason || got.Message == "" {
 				t.Errorf("Readiness() = %s/%s/%s, want %s/%s/%s with a message",
-					got.Type, got.Status, got.Reason, superv1.ReadyCondition, test.status, test.reason)
+					got.Type, got.Status, got.Reason, readyType, test.status, test.reason)
 			}
 		})
 	}
