@@ -1,7 +1,7 @@
 # Opening a Superpod webpage
 
 For the tested Dev Containers setup, run `make test-superpod` and follow the
-[README's browser instructions](../README.md#open-the-demo-from-a-dev-container).
+[demo's browser instructions](../test/superpod/README.md#open-the-demo-from-a-dev-container).
 It installs Traefik into a dedicated Kind cluster and leaves a demo at
 `http://superpod.localhost` after the checks pass. The test's loopback Ingress
 address is configured specifically for its port mapping; use a reachable address
@@ -59,6 +59,18 @@ kubectl get superpods -w
 
 The URL column reports `http://<spec.host>`, even while the resources are pending.
 It is a configured address, not a promise that DNS already resolves it.
+
+To run the controller inside the cluster instead of locally, build and push an
+image, then deploy it:
+
+```sh
+make docker-build docker-push IMG=<your-registry>/operator:<tag>
+make install
+make deploy IMG=<your-registry>/operator:<tag>
+```
+
+Deployment also creates an empty `operator-jev-api` Secret in `operator-system`.
+To enable emoji matching, [patch that Secret and restart the controller](emoji.md#configure-the-key).
 
 ## 3. Read readiness and find the Ingress address
 
